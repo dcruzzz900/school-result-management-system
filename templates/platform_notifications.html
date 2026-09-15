@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Notifications{% endblock %}
+{% block content %}
+<h1>Platform Notifications</h1>
+
+<div class="card" style="max-width:560px;">
+    <h3>Compose</h3>
+    <form method="POST">
+        <label>School</label>
+        <select name="school_id">
+            <option value="">-- All Schools --</option>
+            {% for s in schools %}
+            <option value="{{ s.id }}">{{ s.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label>Send To</label>
+        <select name="target_role" required>
+            <option value="all">Everyone</option>
+            <option value="admin">Admins/Sub-Admins Only</option>
+            <option value="teacher">Teachers Only</option>
+            <option value="student">Students Only</option>
+        </select>
+
+        <label>Title</label>
+        <input type="text" name="title" required maxlength="150">
+
+        <label>Message</label>
+        <textarea name="message" rows="5" required></textarea>
+
+        <button class="btn" type="submit" style="margin-top:1rem;">Send Notification</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Sent History</h3>
+    {% if sent %}
+    <table>
+        <tr><th>When</th><th>Scope</th><th>Audience</th><th>Title</th><th>Message</th></tr>
+        {% for n in sent %}
+        <tr>
+            <td style="font-size:0.85rem;">{{ n.created_at }}</td>
+            <td>{{ n.school_name or 'All Schools' }}</td>
+            <td>{{ n.target_role }}</td>
+            <td>{{ n.title }}</td>
+            <td>{{ n.message }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p style="color:#999;">No notifications sent yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

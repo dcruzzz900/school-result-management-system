@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div class="login-wrapper">
+    <div class="card">
+        <h2>📘 School Result System</h2>
+        <p style="color:#666; font-size:0.9rem;">Sign in to continue</p>
+        <form method="POST">
+            <label>Username</label>
+            <input type="text" name="username" required autofocus>
+            <label>Password</label>
+            <input type="password" name="password" required>
+            <button class="btn" type="submit" style="width:100%;">Login</button>
+        </form>
+        <p style="font-size:0.85rem; margin-top:1rem; text-align:center;">
+            <a href="{{ url_for('recover') }}">Forgot password?</a> &nbsp;|&nbsp;
+            <a href="{{ url_for('register') }}">Staff: create your login</a>
+        </p>
+        <p style="font-size:0.85rem; margin-top:0.5rem; text-align:center;">
+            <a href="{{ url_for('register_school') }}">New school? Register your school here</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

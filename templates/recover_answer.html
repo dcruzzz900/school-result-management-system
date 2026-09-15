@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Recover Account{% endblock %}
+{% block content %}
+<div class="login-wrapper">
+    <div class="card">
+        <h2>Answer Your Security Question</h2>
+        <p style="color:#666; font-size:0.9rem;">{{ question }}</p>
+        <form method="POST">
+            <label>Your Answer</label>
+            <input type="text" name="security_answer" required autofocus>
+            <button class="btn" type="submit" style="width:100%;">Verify</button>
+        </form>
+        <p style="font-size:0.85rem; margin-top:1.5rem;">
+            <a href="{{ url_for('login') }}">Back to login</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

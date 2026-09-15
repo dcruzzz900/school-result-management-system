@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Teacher Dashboard{% endblock %}
+{% block content %}
+<h1>Welcome, {{ session.get('name') }}</h1>
+{% if position_label %}<p class="badge">{{ position_label }}</p>{% endif %}
+{% if is_form_teacher %}<a href="{{ url_for('my_class') }}" class="btn btn-small">Manage My Class Register</a>{% endif %}
+{% if term %}
+<p class="badge">Active: {{ term.session_name }} — {{ term.name }}</p>
+{% else %}
+<p class="flash flash-error">No active term set yet. Contact the admin.</p>
+{% endif %}
+
+<div class="card">
+    <h3>Your Subject Assignments</h3>
+    {% if assignments %}
+    <table>
+        <tr><th>Class</th><th>Subject</th><th>Action</th></tr>
+        {% for a in assignments %}
+        <tr>
+            <td>{{ a.class_name }}</td>
+            <td>{{ a.subject_name }}</td>
+            <td><a class="btn btn-small" href="{{ url_for('score_entry', class_id=a.class_id, subject_id=a.subject_id) }}">Enter Scores</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>You have not been assigned any subjects yet. Contact the admin.</p>
+    {% endif %}
+</div>
+
+{% if result_classes %}
+<div class="card">
+    <h3>Broadsheet &amp; Results Access</h3>
+    <table>
+        <tr><th>Class</th><th>Action</th></tr>
+        {% for c in result_classes %}
+        <tr>
+            <td>{{ c.name }}</td>
+            <td>
+                <a class="btn btn-small" href="{{ url_for('broadsheet', class_id=c.id) }}">Broadsheet</a>
+                <a class="btn btn-small" href="{{ url_for('class_results_list', class_id=c.id) }}">Terminal Results</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+{% endblock %}

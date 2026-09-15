@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Classes{% endblock %}
+{% block content %}
+<h1>Classes</h1>
+<div class="card">
+    <table>
+        <tr><th>Class</th><th>Actions</th></tr>
+        {% for c in classes %}
+        <tr>
+            <td>{{ c.name }}</td>
+            <td>
+                {% if accessible == 'all' or c.id in accessible %}
+                <a class="btn btn-small" href="{{ url_for('broadsheet', class_id=c.id) }}">Broadsheet</a>
+                <a class="btn btn-small" href="{{ url_for('class_results_list', class_id=c.id) }}">Terminal Results</a>
+                {% else %}
+                <span style="color:#999; font-size:0.85rem;">No result access for this class</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

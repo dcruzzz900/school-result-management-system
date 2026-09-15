@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Roll Call{% endblock %}
+{% block content %}
+<h1>Roll Call — {{ class_row.name }}</h1>
+<p style="color:#666; font-size:0.9rem;">
+    Mark today's attendance. Everyone defaults to Present — just switch the students who are
+    absent, then save. Days Open, Present, Absent and the attendance percentage on each
+    student's result are calculated automatically from these daily records.
+</p>
+
+<div class="card">
+    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem;">
+        <a class="btn btn-small" href="{{ url_for('roll_call', class_id=class_row.id, date=prev_day) }}">&larr; Previous Day</a>
+        <form method="GET" style="display:flex; align-items:center; gap:0.5rem;">
+            <input type="date" name="date" value="{{ date_str }}" onchange="this.form.submit()" max="{{ today }}">
+        </form>
+        <a class="btn btn-small" href="{{ url_for('roll_call', class_id=class_row.id, date=next_day) }}">Next Day &rarr;</a>
+        {% if date_str != today %}
+        <a class="btn btn-small" href="{{ url_for('roll_call', class_id=class_row.id, date=today) }}">Jump to Today</a>
+        {% endif %}
+        <a class="btn btn-small" style="margin-left:auto;" href="{{ url_for('roll_call_history', class_id=class_row.id) }}">View Attendance History</a>
+    </div>
+
+    {% if not students %}
+    <p style="color:#999;">No active students in this class yet.</p>
+    {% else %}
+    <form method="POST">
+        <input type="hidden" name="date" value="{{ date_str }}">
+        <table>
+            <tr><th>Admission No.</th><th>Student</th><th>Present</th><th>Absent</th></tr>
+            {% for s in students %}
+            {% set current = existing.get(s.id, 'present') %}
+            <tr>
+                <td>{{ s.admission_no }}</td>
+                <td>{{ student_full_name(s) }}</td>
+                <td>
+                    <input type="radio" name="status_{{ s.id }}" value="present" {% if current == 'present' %}checked{% endif %}>
+                </td>
+                <td>
+                    <input type="radio" name="status_{{ s.id }}" value="absent" {% if current == 'absent' %}checked{% endif %}>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+        <button class="btn" type="submit" style="margin-top:1rem;">Save Roll Call for {{ date_str }}</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

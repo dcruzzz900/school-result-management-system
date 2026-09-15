@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Broadsheet{% endblock %}
+{% block content %}
+<div class="report-header">
+    {% if school_logo_url %}<img src="{{ school_logo_url }}" alt="{{ school_name }}" class="report-logo"><br>{% endif %}
+    <h2 style="margin:0.2rem 0;">{{ school_name }}</h2>
+    <h1>Broadsheet</h1>
+    <p>{{ class_row.name }}{% if class_row.category %} ({{ class_row.category }}){% endif %} &mdash; {{ term.session_name }} &mdash; {{ term.name }}</p>
+</div>
+
+<div class="no-print" style="margin-bottom:1rem;">
+    <form method="GET" class="inline" style="display:inline-block; margin-right:0.5rem;">
+        <label style="display:inline; font-weight:normal;">Term:</label>
+        <select name="term_id" onchange="this.form.submit()" style="width:auto; display:inline-block;">
+            {% for t in all_terms %}
+            <option value="{{ t.id }}" {% if t.id == term.id %}selected{% endif %}>{{ t.session_name }} — {{ t.name }}{% if t.is_active %} (active){% endif %}</option>
+            {% endfor %}
+        </select>
+    </form>
+    <a class="btn" href="{{ url_for('broadsheet_pdf', class_id=class_row.id, term_id=term.id) }}">⬇ Download PDF</a>
+    <button class="btn btn-gold" onclick="window.print()">🖨 Print</button>
+    {% if cumulative_enabled %}
+    <a class="btn" href="{{ url_for('cumulative_broadsheet', class_id=class_row.id) }}">📊 Annual / Cumulative Broadsheet</a>
+    {% endif %}
+    {% if term.is_active %}
+    <form method="POST" action="{{ url_for('email_class_results', class_id=class_row.id) }}" class="inline"
+          onsubmit="return confirm('Email every student\'s result in this class to their parent email on file?');">
+        <button class="btn" type="submit">✉ Email All Results to Parents</button>
+    </form>
+    {% else %}
+    <span style="font-size:0.85rem; color:#999;">Viewing a past term — switch to the active term to email results.</span>
+    {% endif %}
+</div>
+
+<div style="overflow-x:auto;">
+<table>
+    <tr>
+        <th>S/N</th>
+        <th>Student</th>
+        {% for subj in subjects %}<th>{{ subj.name }}</th>{% endfor %}
+        <th>Total</th>
+        <th>Average</th>
+        <th>Position</th>
+    </tr>
+    {% for r in rows %}
+    <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ student_full_name(r.student) }}</td>
+        {% for subj in subjects %}
+        <td>{{ r.scores[subj.id].total }} {% if r.scores[subj.id].grade != '-' %}({{ r.scores[subj.id].grade }}){% endif %}</td>
+        {% endfor %}
+        <td>{{ r.total }}</td>
+        <td>{{ r.average }}</td>
+        <td>{{ r.position }}</td>
+    </tr>
+    {% endfor %}
+</table>
+</div>
+{% endblock %}

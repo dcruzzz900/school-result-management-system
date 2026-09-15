@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Terminal Results{% endblock %}
+{% block content %}
+<h1>Terminal Results — {{ class_row.name }}</h1>
+
+<form method="GET" style="margin-bottom:1rem; display:inline-block;">
+    <label style="display:inline; font-weight:normal;">Term:</label>
+    <select name="term_id" onchange="this.form.submit()" style="width:auto; display:inline-block;">
+        {% for t in all_terms %}
+        <option value="{{ t.id }}" {% if t.id == term.id %}selected{% endif %}>{{ t.session_name }} — {{ t.name }}{% if t.is_active %} (active){% endif %}</option>
+        {% endfor %}
+    </select>
+</form>
+<a class="btn" href="{{ url_for('class_results_pdf', class_id=class_row.id, term_id=term.id) }}">⬇ Download All Results as One PDF</a>
+
+<div class="card">
+    <table>
+        <tr><th>Admission No. / Register No.</th><th>Name</th><th>Action</th></tr>
+        {% for s in students %}
+        <tr>
+            <td>{{ s.admission_no }}</td>
+            <td>{{ student_full_name(s) }}</td>
+            <td><a class="btn btn-small" href="{{ url_for('result', student_id=s.id, term_id=term.id) }}">View Result</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Reports & Analytics{% endblock %}
+{% block content %}
+<h1>Reports &amp; Analytics</h1>
+<p style="color:#666; font-size:0.9rem;">Export data as CSV (opens in any spreadsheet app) or Excel (.xlsx).</p>
+
+<div class="card">
+    <h3>Class Broadsheet</h3>
+    <p style="font-size:0.9rem; color:#666;">Every student's scores for a class, in one exportable table.</p>
+    <form method="GET" action="{{ url_for('report_broadsheet') }}" class="report-form">
+        <label>Class</label>
+        <select name="class_id" required>
+            {% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select>
+        <label>Term</label>
+        <select name="term_id">
+            {% for t in all_terms %}
+            <option value="{{ t.id }}" {% if t.is_active %}selected{% endif %}>{{ t.session_name }} — {{ t.name }}{% if t.is_active %} (active){% endif %}</option>
+            {% endfor %}
+        </select>
+        <div style="margin-top:0.75rem;">
+            <button class="btn btn-small" type="submit" formaction="{{ url_for('report_broadsheet', format='csv') }}">Download CSV</button>
+            <button class="btn btn-small btn-gold" type="submit" formaction="{{ url_for('report_broadsheet', format='xlsx') }}">Download Excel</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Subject Performance Summary</h3>
+    <p style="font-size:0.9rem; color:#666;">Average, highest, and lowest score per subject, per class, across the whole school for a term.</p>
+    <form method="GET" action="{{ url_for('report_subject_performance') }}" class="report-form">
+        <label>Term</label>
+        <select name="term_id">
+            {% for t in all_terms %}
+            <option value="{{ t.id }}" {% if t.is_active %}selected{% endif %}>{{ t.session_name }} — {{ t.name }}{% if t.is_active %} (active){% endif %}</option>
+            {% endfor %}
+        </select>
+        <div style="margin-top:0.75rem;">
+            <button class="btn btn-small" type="submit" formaction="{{ url_for('report_subject_performance', format='csv') }}">Download CSV</button>
+            <button class="btn btn-small btn-gold" type="submit" formaction="{{ url_for('report_subject_performance', format='xlsx') }}">Download Excel</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Attendance Summary</h3>
+    <p style="font-size:0.9rem; color:#666;">Days present/absent and attendance % per student for a term, optionally filtered to one class.</p>
+    <form method="GET" action="{{ url_for('report_attendance') }}" class="report-form">
+        <label>Term</label>
+        <select name="term_id">
+            {% for t in all_terms %}
+            <option value="{{ t.id }}" {% if t.is_active %}selected{% endif %}>{{ t.session_name }} — {{ t.name }}{% if t.is_active %} (active){% endif %}</option>
+            {% endfor %}
+        </select>
+        <label>Class (optional — leave blank for the whole school)</label>
+        <select name="class_id">
+            <option value="">-- all classes --</option>
+            {% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select>
+        <div style="margin-top:0.75rem;">
+            <button class="btn btn-small" type="submit" formaction="{{ url_for('report_attendance', format='csv') }}">Download CSV</button>
+            <button class="btn btn-small btn-gold" type="submit" formaction="{{ url_for('report_attendance', format='xlsx') }}">Download Excel</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Student Academic History</h3>
+    <p style="font-size:0.9rem; color:#666;">Every subject score for one student, across every session/term they've been enrolled in.</p>
+    <form method="GET" action="{{ url_for('report_student_history') }}" class="report-form">
+        <label>Student</label>
+        <select name="student_id" required>
+            {% for s in students %}<option value="{{ s.id }}">{{ student_full_name(s) }} — {{ s.class_name }}</option>{% endfor %}
+        </select>
+        <div style="margin-top:0.75rem;">
+            <button class="btn btn-small" type="submit" formaction="{{ url_for('report_student_history', format='csv') }}">Download CSV</button>
+            <button class="btn btn-small btn-gold" type="submit" formaction="{{ url_for('report_student_history', format='xlsx') }}">Download Excel</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

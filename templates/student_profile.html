@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Student Profile{% endblock %}
+{% block content %}
+<h1>Student Profile</h1>
+
+<div class="card">
+    <h3>{{ student_full_name(student) }}</h3>
+    <div class="grid-2">
+        <div>
+            <p><b>Admission No. / Register No.:</b> {{ student.admission_no }}</p>
+            <p><b>Class / Arm:</b> {{ class_row.name }}</p>
+            <p><b>Gender:</b> {{ student.gender or '—' }}</p>
+            <p><b>Date of Birth:</b> {{ student.date_of_birth or '—' }}</p>
+            <p><b>Religion:</b> {{ student.religion or '—' }}</p>
+        </div>
+        <div>
+            <p><b>Parent/Guardian Name:</b> {{ student.parent_name or '—' }}</p>
+            <p><b>Parent/Guardian Address:</b> {{ student.parent_address or '—' }}</p>
+            <p><b>Parent/Guardian Email:</b> {{ student.parent_email or '—' }}</p>
+            <p><b>Parent/Guardian Phone:</b> {{ student.parent_phone or '—' }}</p>
+            <p><b>Student Login:</b> {% if student.username %}{{ student.username }} (active){% else %}Not set up{% endif %}</p>
+        </div>
+    </div>
+</div>
+
+{% if enrollment_history %}
+<div class="card">
+    <h3>Academic History</h3>
+    <table>
+        <tr><th>Session</th><th>Class / Arm</th></tr>
+        {% for e in enrollment_history %}
+        <tr><td>{{ e.session_name }}</td><td>{{ e.class_name }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Student Login</h3>
+    <p style="font-size:0.9rem; color:#666;">
+        Give this student their own login so they can view their published results
+        online. They can only ever see their own results, and only once a term has
+        been published (Setup → Terms).
+    </p>
+    <form method="POST" action="{{ url_for('set_student_login', student_id=student.id) }}">
+        <label>Username</label>
+        <input type="text" name="username" value="{{ student.username or '' }}" required>
+        <label>Password {% if student.username %}(leave blank to keep the current one){% endif %}</label>
+        <input type="password" name="password" {% if not student.username %}required{% endif %} minlength="6">
+        <button class="btn" type="submit">{% if student.username %}Update{% else %}Create{% endif %} Student Login</button>
+    </form>
+    {% if student.username %}
+    <form method="POST" action="{{ url_for('remove_student_login', student_id=student.id) }}" style="margin-top:0.75rem;"
+          onsubmit="return confirm('Remove this student\'s login? They will no longer be able to sign in.');">
+        <button class="btn btn-small" style="background:#b3261e;" type="submit">Remove Login</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

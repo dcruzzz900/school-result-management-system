@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Platform Dashboard{% endblock %}
+{% block content %}
+<h1>Platform Dashboard</h1>
+
+<div class="stat-grid">
+    <div class="stat-box"><div class="num">{{ stats.schools_total }}</div><div class="label">Total Schools</div></div>
+    <div class="stat-box"><div class="num">{{ stats.schools_active }}</div><div class="label">Active Schools</div></div>
+    <div class="stat-box"><div class="num">{{ stats.schools_suspended }}</div><div class="label">Suspended Schools</div></div>
+    <div class="stat-box"><div class="num">{{ stats.students }}</div><div class="label">Students (all schools)</div></div>
+    <div class="stat-box"><div class="num">{{ stats.teachers }}</div><div class="label">Teachers</div></div>
+    <div class="stat-box"><div class="num">{{ stats.admins }}</div><div class="label">Admins/Sub-Admins</div></div>
+    <div class="stat-box"><div class="num">{{ stats.classes }}</div><div class="label">Classes</div></div>
+    <div class="stat-box"><div class="num">{{ stats.published_terms }}</div><div class="label">Published Terms</div></div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h3>Manage</h3>
+        <a class="btn" href="{{ url_for('platform_schools') }}">Schools</a>
+        <a class="btn" href="{{ url_for('platform_users') }}">Users</a>
+        <a class="btn" href="{{ url_for('platform_audit') }}">Audit Log</a>
+    </div>
+    <div class="card">
+        <h3>Recent Activity</h3>
+        {% if recent_audit %}
+        <table>
+            <tr><th>Action</th><th>When</th></tr>
+            {% for log in recent_audit %}
+            <tr><td>{{ log.action }} — {{ log.details or '' }}</td><td style="font-size:0.8rem;">{{ log.created_at }}</td></tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p style="color:#999;">No activity yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

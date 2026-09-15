@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Score History{% endblock %}
+{% block content %}
+<h1>Score Change History</h1>
+<p class="badge">{{ class_row.name }} — {{ subject_row.name }}</p>
+
+<div class="card">
+    {% if history %}
+    <table>
+        <tr><th>Student</th><th>Old (CA1/CA2/Exam)</th><th>New (CA1/CA2/Exam)</th><th>Changed By</th><th>When</th></tr>
+        {% for h in history %}
+        <tr>
+            <td>{{ student_full_name(h) }}</td>
+            <td>
+                {% if h.old_ca1 is none %}<span style="color:#999;">(new entry)</span>
+                {% else %}{{ h.old_ca1 }} / {{ h.old_ca2 }} / {{ h.old_exam }}{% endif %}
+            </td>
+            <td>{{ h.new_ca1 }} / {{ h.new_ca2 }} / {{ h.new_exam }}</td>
+            <td>{{ h.changed_by_name or 'Unknown' }}</td>
+            <td>{{ h.changed_at }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p style="color:#999;">No score changes recorded yet for this class/subject in the current term.</p>
+    {% endif %}
+</div>
+{% endblock %}

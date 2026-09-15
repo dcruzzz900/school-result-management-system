@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Subjects{% endblock %}
+{% block content %}
+<h1>Subjects</h1>
+
+<div class="card">
+    <h3>Add a Subject</h3>
+    <form method="POST">
+        <label>Subject name (e.g. Mathematics)</label>
+        <input type="text" name="name" required>
+        <button class="btn" type="submit">Add Subject</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>All Subjects</h3>
+    <table>
+        <tr><th>Subject</th><th>Actions</th></tr>
+        {% for s in subjects %}
+        <tr>
+            <td>{{ s.name }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('delete_subject', subject_id=s.id) }}"
+                      onsubmit="return confirm('Delete subject {{ s.name }}? This only works if it is not assigned to any class.');">
+                    <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

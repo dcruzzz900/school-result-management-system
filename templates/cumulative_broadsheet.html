@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Cumulative Broadsheet{% endblock %}
+{% block content %}
+<div class="report-header">
+    {% if school_logo_url %}<img src="{{ school_logo_url }}" alt="{{ school_name }}" class="report-logo"><br>{% endif %}
+    <h2 style="margin:0.2rem 0;">{{ school_name }}</h2>
+    <h1>Annual / Cumulative Broadsheet</h1>
+    <p>{{ class_row.name }}{% if class_row.category %} ({{ class_row.category }}){% endif %} &mdash; {{ academic_session.name }}</p>
+</div>
+
+<div class="no-print" style="margin-bottom:1rem;">
+    <form method="GET" class="inline" style="display:inline-block; margin-right:0.5rem;">
+        <label style="display:inline; font-weight:normal;">Session:</label>
+        <select name="session_id" onchange="this.form.submit()" style="width:auto; display:inline-block;">
+            {% for s in all_sessions %}
+            <option value="{{ s.id }}" {% if s.id == academic_session.id %}selected{% endif %}>{{ s.name }}{% if s.is_active %} (active){% endif %}</option>
+            {% endfor %}
+        </select>
+    </form>
+    <a class="btn" href="{{ url_for('broadsheet', class_id=class_row.id) }}">&larr; Back to Term Broadsheet</a>
+    <button class="btn btn-gold" onclick="window.print()">🖨 Print</button>
+</div>
+
+<p style="color:#666; font-size:0.85rem;">
+    Cumulative Average is the mean of each subject's totals across every term this session that
+    has a score recorded for it &mdash; a term with no score for a subject isn't counted, rather
+    than dragging the average down to 0.
+</p>
+
+<div style="overflow-x:auto;">
+<table>
+    <tr>
+        <th>S/N</th>
+        <th>Student</th>
+        {% for subj in subjects %}<th>{{ subj.name }}</th>{% endfor %}
+        <th>Average</th>
+        <th>Position</th>
+    </tr>
+    {% for r in rows %}
+    <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ student_full_name(r.student) }}</td>
+        {% for subj in subjects %}
+        <td>{{ r.subjects[subj.id].average }} {% if r.subjects[subj.id].grade != '-' %}({{ r.subjects[subj.id].grade }}){% endif %}</td>
+        {% endfor %}
+        <td>{{ r.average }}</td>
+        <td>{{ r.position }}</td>
+    </tr>
+    {% endfor %}
+</table>
+</div>
+{% endblock %}

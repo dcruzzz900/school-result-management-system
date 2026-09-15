@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1>Users</h1>
+<p style="color:#666; font-size:0.9rem;">All staff accounts across every school on this platform.</p>
+
+<form method="GET" style="margin-bottom:1rem;">
+    <label style="display:inline; font-weight:normal;">Filter by school:</label>
+    <select name="school_id" onchange="this.form.submit()" style="width:auto; display:inline-block;">
+        <option value="">-- all schools --</option>
+        {% for s in schools %}
+        <option value="{{ s.id }}" {% if school_filter == s.id %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+    </select>
+</form>
+
+<div class="card">
+    <table>
+        <tr><th>Name</th><th>Username</th><th>Role</th><th>School</th><th>Actions</th></tr>
+        {% for u in users %}
+        <tr>
+            <td>{{ u.name }}</td>
+            <td>{{ u.username }}</td>
+            <td>{{ u.role }}{% if u.position %} ({{ u.position }}){% endif %}</td>
+            <td>{{ u.school_name }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('platform_reset_user_password', user_id=u.id) }}"
+                      onsubmit="return confirm('Reset the password for {{ u.name }}?');">
+                    <button class="btn btn-small" type="submit">Reset Password</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

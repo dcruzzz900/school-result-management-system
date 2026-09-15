@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Recover Account{% endblock %}
+{% block content %}
+<div class="login-wrapper">
+    <div class="card">
+        <h2>Forgot Your Password?</h2>
+        <p style="color:#666; font-size:0.9rem;">
+            Enter your username and we'll ask your security question.
+        </p>
+        <form method="POST">
+            <label>Username</label>
+            <input type="text" name="username" required autofocus>
+            <button class="btn" type="submit" style="width:100%;">Continue</button>
+        </form>
+        <p style="font-size:0.85rem; margin-top:1.5rem;">
+            Don't have a security question set up, or forgot your username too?
+            Ask your admin to look up your username or reset your password for
+            you from Setup → Teachers.
+        </p>
+        <p style="font-size:0.85rem;">
+            <a href="{{ url_for('login') }}">Back to login</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

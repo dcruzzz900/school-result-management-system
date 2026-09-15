@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Score Entry{% endblock %}
+{% block content %}
+<h1>Score Entry</h1>
+<p class="badge">{{ class_row.name }} — {{ subject_row.name }} — {{ term.session_name }} {{ term.name }}</p>
+<p style="font-size:0.85rem; color:#666;">
+    Max marks — CA1: {{ config.ca1_max }}, CA2: {{ config.ca2_max }}, Exam: {{ config.exam_max }}
+</p>
+
+<div class="no-print" style="margin-bottom:1rem;">
+    <a class="btn btn-small" href="{{ url_for('score_history_view', class_id=class_row.id, subject_id=subject_row.id) }}">View Change History</a>
+</div>
+
+<div class="card">
+    <h3>Work Offline (CSV)</h3>
+    <p style="font-size:0.9rem; color:#666;">
+        Download the current scores as a CSV, fill it in on your computer, then upload it back — handy if you don't have reliable internet in the classroom.
+    </p>
+    <a class="btn btn-small" href="{{ url_for('score_csv_template', class_id=class_row.id, subject_id=subject_row.id) }}">Download CSV Template</a>
+    <form method="POST" action="{{ url_for('score_csv_upload', class_id=class_row.id, subject_id=subject_row.id) }}" enctype="multipart/form-data" style="margin-top:1rem;">
+        <label>Upload Completed CSV</label>
+        <input type="file" name="csv_file" accept=".csv" required>
+        <button class="btn" type="submit">Upload &amp; Save Scores</button>
+    </form>
+</div>
+
+<div class="card">
+    <label>Search Students</label>
+    <input type="text" id="studentSearch" placeholder="Type a name or Admission No. / Register No..." autocomplete="off">
+</div>
+
+<form method="POST">
+    <table id="scoreTable">
+        <tr>
+            <th>Admission No. / Register No.</th>
+            <th>Student</th>
+            <th>CA1 (/{{ config.ca1_max }})</th>
+            <th>CA2 (/{{ config.ca2_max }})</th>
+            <th>Exam (/{{ config.exam_max }})</th>
+            <th>Total</th>
+        </tr>
+        {% for s in students %}
+        <tr class="student-row" data-search="{{ (s.admission_no ~ ' ' ~ student_full_name(s))|lower }}">
+            <td>{{ s.admission_no }}</td>
+            <td>
+                {{ student_full_name(s) }}
+                <input type="hidden" name="student_id" value="{{ s.id }}">
+            </td>
+            <td><input type="number" step="0.01" min="0" max="{{ config.ca1_max }}" class="score-input"
+                data-student="{{ s.id }}" data-field="ca1"
+                name="ca1_{{ s.id }}" value="{{ existing[s.id].ca1 if s.id in existing else '' }}"></td>
+            <td><input type="number" step="0.01" min="0" max="{{ config.ca2_max }}" class="score-input"
+                data-student="{{ s.id }}" data-field="ca2"
+                name="ca2_{{ s.id }}" value="{{ existing[s.id].ca2 if s.id in existing else '' }}"></td>
+            <td><input type="number" step="0.01" min="0" max="{{ config.exam_max }}" class="score-input"
+                data-student="{{ s.id }}" data-field="exam"
+                name="exam_{{ s.id }}" value="{{ existing[s.id].exam if s.id in existing else '' }}"></td>
+            <td><output id="total_{{ s.id }}" style="font-weight:600;">
+                {{ (existing[s.id].ca1 + existing[s.id].ca2 + existing[s.id].exam) if s.id in existing else 0 }}
+            </output></td>
+        </tr>
+        {% endfor %}
+    </table>
+    <button class="btn" type="submit">Save Scores</button>
+</form>
+
+<script>
+document.getElementById('studentSearch').addEventListener('input', function() {
+    const q = this.value.trim().toLowerCase();
+    document.querySelectorAll('.student-row').forEach(function(row) {
+        row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+    });
+});
+</script>
+
+
+<script>
+function recomputeTotal(studentId) {
+    const ca1 = parseFloat(document.querySelector(`[data-student="${studentId}"][data-field="ca1"]`).value) || 0;
+    const ca2 = parseFloat(document.querySelector(`[data-student="${studentId}"][data-field="ca2"]`).value) || 0;
+    const exam = parseFloat(document.querySelector(`[data-student="${studentId}"][data-field="exam"]`).value) || 0;
+    document.getElementById(`total_${studentId}`).textContent = (ca1 + ca2 + exam).toFixed(2);
+}
+document.querySelectorAll('.score-input').forEach(function(input) {
+    input.addEventListener('input', function() {
+        recomputeTotal(this.dataset.student);
+    });
+});
+</script>
+{% endblock %}

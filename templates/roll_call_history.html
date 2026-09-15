@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Attendance History{% endblock %}
+{% block content %}
+<h1>Attendance History — {{ class_row.name }}</h1>
+<p style="color:#666; font-size:0.9rem;">Totals are for the current active term.</p>
+
+<div class="card">
+    <h3>Per-Student Summary</h3>
+    {% if not summaries %}
+    <p style="color:#999;">No active students in this class yet.</p>
+    {% else %}
+    <table>
+        <tr><th>Admission No.</th><th>Student</th><th>Days Open</th><th>Present</th><th>Absent</th><th>Attendance %</th></tr>
+        {% for row in summaries %}
+        <tr>
+            <td>{{ row.student.admission_no }}</td>
+            <td>{{ student_full_name(row.student) }}</td>
+            <td>{{ row.opened }}</td>
+            <td>{{ row.present }}</td>
+            <td>{{ row.absent }}</td>
+            <td>{{ row.percentage }}%</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3>Days Recorded</h3>
+    {% if not dates %}
+    <p style="color:#999;">No roll call has been taken yet this term.</p>
+    {% else %}
+    <table>
+        <tr><th>Date</th><th>Present</th><th>Absent</th><th></th></tr>
+        {% for d in dates %}
+        <tr>
+            <td>{{ d.date }}</td>
+            <td>{{ d.present }}</td>
+            <td>{{ d.absent }}</td>
+            <td><a class="btn btn-small" href="{{ url_for('roll_call', class_id=class_row.id, date=d.date) }}">Review / Edit</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+</div>
+
+<a class="btn btn-small" href="{{ url_for('roll_call', class_id=class_row.id) }}">&larr; Back to Today's Roll Call</a>
+{% endblock %}

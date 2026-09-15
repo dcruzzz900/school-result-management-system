@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}School Profile{% endblock %}
+{% block content %}
+<h1>School Profile</h1>
+<p style="color:#666; font-size:0.9rem;">
+    This name and logo appear on the dashboard, broadsheet, and terminal
+    results (on screen and in the downloaded PDFs). Update it anytime.
+</p>
+
+<div class="card" style="max-width:520px;">
+    <h3>Current Logo</h3>
+    {% if settings.logo_filename %}
+        <img src="{{ url_for('school_logo') }}" alt="Current logo" style="max-height:120px; margin-bottom:1rem; display:block;">
+        <form method="POST" action="{{ url_for('remove_school_logo') }}"
+              onsubmit="return confirm('Remove the current logo?');">
+            <button class="btn btn-small" style="background:#b3261e;" type="submit">Remove Logo</button>
+        </form>
+    {% else %}
+        <p style="color:#999; font-size:0.9rem;">No logo uploaded yet.</p>
+    {% endif %}
+</div>
+
+<div class="card" style="max-width:520px;">
+    <h3>Update School Name &amp; Logo</h3>
+    <form method="POST" enctype="multipart/form-data">
+        <label>School Name</label>
+        <input type="text" name="school_name" value="{{ settings.name if settings else '' }}" required>
+
+        <label>Logo Image (PNG, JPG, or GIF — leave blank to keep the current one)</label>
+        <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif">
+
+        <label>Logo Alignment on Dashboard</label>
+        <div style="margin-top:0.4rem; display:flex; gap:1.5rem;">
+            {% for value, display in [('left','Left'), ('center','Center'), ('right','Right')] %}
+            <label style="font-weight:normal; display:flex; align-items:center; gap:0.4rem;">
+                <input type="radio" name="logo_align" value="{{ value }}" style="width:auto;"
+                    {% if (settings.logo_align if settings else 'center') == value %}checked{% endif %}>
+                {{ display }}
+            </label>
+            {% endfor %}
+        </div>
+
+        <label style="margin-top:1rem;">Result Comments</label>
+        <label style="font-weight:normal; display:flex; align-items:center; gap:0.4rem; margin-top:0.4rem;">
+            <input type="checkbox" name="auto_teacher_comment" style="width:auto;"
+                {% if settings and settings.auto_teacher_comment %}checked{% endif %}>
+            Automatically Generate Teacher's Comment
+        </label>
+        <label style="font-weight:normal; display:flex; align-items:center; gap:0.4rem;">
+            <input type="checkbox" name="auto_principal_comment" style="width:auto;"
+                {% if settings and settings.auto_principal_comment %}checked{% endif %}>
+            Automatically Generate Principal's Comment
+        </label>
+        <p style="font-size:0.85rem; color:#999; margin-top:0.3rem;">
+            When on, this term's comment is generated from the student's grade/average instead of
+            what's typed on the result — handy when scores come in by offline CSV and no one
+            types a comment by hand.
+        </p>
+
+        <button class="btn" type="submit" style="margin-top:1rem;">Save Changes</button>
+    </form>
+</div>
+
+<div class="card" style="max-width:520px;">
+    <h3>Staff Self-Registration</h3>
+    <p style="font-size:0.9rem; color:#666;">
+        Set a signup code and share it privately with your staff — they can
+        then create their own login at the "Staff: create your login" link
+        on the login page, choosing their position (principal, vice
+        principal, exam officer, form teacher, or subject teacher)
+        themselves. Leave the code blank and save to turn self-registration
+        off entirely.
+    </p>
+    {% if settings.staff_signup_code %}
+    <p style="font-size:0.9rem;">Current code: <b>{{ settings.staff_signup_code }}</b></p>
+    {% else %}
+    <p style="font-size:0.9rem; color:#999;">Self-registration is currently off.</p>
+    {% endif %}
+    <form method="POST" action="{{ url_for('set_staff_signup_code') }}">
+        <label>Staff Signup Code</label>
+        <input type="text" name="staff_signup_code" value="{{ settings.staff_signup_code or '' }}" placeholder="e.g. GSS2026">
+        <button class="btn" type="submit">Save Code</button>
+    </form>
+</div>
+{% endblock %}

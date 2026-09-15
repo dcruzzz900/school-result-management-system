@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Teachers{% endblock %}
+{% block content %}
+<h1>Teachers</h1>
+
+<div class="card">
+    <h3>Add a Teacher</h3>
+    <form method="POST">
+        <label>Full Name</label>
+        <input type="text" name="name" required>
+        <label>Username</label>
+        <input type="text" name="username" required>
+        <label>Password</label>
+        <input type="password" name="password" required minlength="6">
+        <label>Position</label>
+        <select name="position">
+            <option value="">-- not set --</option>
+            {% for value, display in position_choices %}
+            <option value="{{ value }}">{{ display }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn" type="submit">Add Teacher</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>All Teachers</h3>
+    <table>
+        <tr><th>Name</th><th>Username</th><th>Position</th><th>Actions</th></tr>
+        {% for t in teachers %}
+        <tr>
+            <td>{{ t.name }}</td>
+            <td>{{ t.username }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('set_teacher_position', teacher_id=t.id) }}" class="inline">
+                    <select name="position" style="width:auto; display:inline-block;" onchange="this.form.submit()">
+                        <option value="">-- not set --</option>
+                        {% for value, display in position_choices %}
+                        <option value="{{ value }}" {% if t.position == value %}selected{% endif %}>{{ display }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </td>
+            <td style="white-space:nowrap;">
+                <form method="POST" action="{{ url_for('admin_reset_teacher_password', teacher_id=t.id) }}" class="inline"
+                      onsubmit="return confirm('Reset the password for {{ t.name }}? A new temporary password will be shown here once.');">
+                    <button class="btn btn-small" type="submit">Reset Password</button>
+                </form>
+                <form method="POST" action="{{ url_for('delete_teacher', teacher_id=t.id) }}" class="inline"
+                      onsubmit="return confirm('Remove {{ t.name }}? Any classes/subjects they teach will become unassigned.');">
+                    <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

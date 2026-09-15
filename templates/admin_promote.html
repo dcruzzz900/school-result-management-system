@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Promote Students{% endblock %}
+{% block content %}
+<h1>Promote Students</h1>
+<p style="color:#666; font-size:0.9rem;">
+    Move students from one class/arm to the next at the end of an academic session
+    (e.g. JSS1 → JSS2, SS1 Science 1 → SS2 Science 1). Their Admission No. / Register No.
+    and all past scores/results are kept — only their current class changes.
+</p>
+<p style="background:#fbe9e7; border:1px solid #f3c1bc; padding:0.6rem 0.9rem; border-radius:6px; font-size:0.88rem; color:#7a2a20;">
+    <b>Tip:</b> finish printing/emailing this session's results before promoting — once a
+    student moves to a new class, their old class's broadsheet will reflect the new class
+    going forward, since a student always belongs to one current class.
+</p>
+
+<div class="card">
+    <h3>Step 1: Choose Source Class</h3>
+    <form method="GET">
+        <label>From Class / Arm</label>
+        <select name="from_class_id" onchange="this.form.submit()">
+            <option value="">-- choose a class --</option>
+            {% for c in classes %}
+            <option value="{{ c.id }}" {% if from_class_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+    </form>
+</div>
+
+{% if from_class_id and students %}
+<div class="card">
+    <h3>Step 2: Choose Destination &amp; Students</h3>
+    <form method="POST">
+        <input type="hidden" name="from_class_id" value="{{ from_class_id }}">
+        <label>To Existing Class / Arm</label>
+        <select name="to_class_id">
+            <option value="">-- or type a new class name below --</option>
+            {% for c in classes %}
+            {% if c.id != from_class_id %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endif %}
+            {% endfor %}
+        </select>
+        <label>Or Create a New Class / Arm</label>
+        <input type="text" name="to_class_name" placeholder="e.g. SS2 Science 1">
+
+        <h4>Students to Promote</h4>
+        <p><label style="font-weight:normal;"><input type="checkbox" id="selectAll" checked style="width:auto;"> Select/Deselect All</label></p>
+        <table>
+            <tr><th></th><th>Admission No. / Register No.</th><th>Name</th></tr>
+            {% for s in students %}
+            <tr>
+                <td><input type="checkbox" name="student_ids" value="{{ s.id }}" class="student-check" checked></td>
+                <td>{{ s.admission_no }}</td>
+                <td>{{ student_full_name(s) }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <button class="btn" type="submit" style="margin-top:1rem;"
+                onclick="return confirm('Promote the selected students? This changes their current class.');">
+            Promote Selected Students
+        </button>
+    </form>
+</div>
+<script>
+document.getElementById('selectAll').addEventListener('change', function() {
+    document.querySelectorAll('.student-check').forEach(cb => cb.checked = this.checked);
+});
+</script>
+{% elif from_class_id %}
+<div class="card"><p style="color:#999;">No active students in that class.</p></div>
+{% endif %}
+{% endblock %}

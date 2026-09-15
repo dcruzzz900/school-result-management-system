@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Register Your School{% endblock %}
+{% block content %}
+<div class="login-wrapper" style="max-width:460px;">
+    <div class="card">
+        <h2>Register Your School</h2>
+        <p style="color:#666; font-size:0.9rem;">
+            This creates a brand-new, independent school on this system, along with your own admin account.
+        </p>
+        <form method="POST">
+            <label>School Name</label>
+            <input type="text" name="school_name" required>
+
+            <label>Your Full Name</label>
+            <input type="text" name="name" required>
+
+            <label>Choose a Username</label>
+            <input type="text" name="username" required>
+
+            <label>Choose a Password</label>
+            <input type="password" name="password" required minlength="6">
+
+            <label>Confirm Password</label>
+            <input type="password" name="confirm_password" required minlength="6">
+
+            <label>Security Question (for password recovery)</label>
+            <select name="security_question" required>
+                <option value="">-- choose a question --</option>
+                {% for q in security_questions %}
+                <option value="{{ q }}">{{ q }}</option>
+                {% endfor %}
+            </select>
+
+            <label>Your Answer</label>
+            <input type="text" name="security_answer" required>
+
+            <button class="btn" type="submit" style="width:100%; margin-top:1rem;">Create My School</button>
+        </form>
+        <p style="font-size:0.85rem; margin-top:1rem; text-align:center;">
+            <a href="{{ url_for('login') }}">Back to login</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

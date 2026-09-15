@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Notifications{% endblock %}
+{% block content %}
+<h1>Notifications</h1>
+{% if session.get('role') in ['admin', 'sub_admin'] %}
+<div class="no-print" style="margin-bottom:1rem;">
+    <a class="btn" href="{{ url_for('notifications_compose') }}">Compose Notification</a>
+</div>
+{% endif %}
+
+<div class="card">
+    {% if notifications %}
+    {% for n in notifications %}
+    <div style="padding:0.75rem 0; border-bottom:1px solid var(--border);">
+        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+            <h3 style="margin:0;">{{ n.title }}</h3>
+            <span style="font-size:0.8rem; color:#999;">{{ n.created_at }}</span>
+        </div>
+        <p style="margin:0.3rem 0; white-space:pre-wrap;">{{ n.message }}</p>
+        <p style="font-size:0.8rem; color:#999; margin:0;">
+            From: {{ n.sender_label }}{% if n.school_name %} — {{ n.school_name }}{% elif n.school_id is none %} — All Schools{% endif %}
+        </p>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p style="color:#999;">No notifications yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

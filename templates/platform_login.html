@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Platform Admin Login{% endblock %}
+{% block content %}
+<div class="login-wrapper">
+    <div class="card">
+        <h2>🌐 Platform Admin</h2>
+        <p style="color:#666; font-size:0.9rem;">Manage all schools on this deployment</p>
+        <form method="POST">
+            <label>Username</label>
+            <input type="text" name="username" required autofocus>
+            <label>Password</label>
+            <input type="password" name="password" required>
+            <button class="btn" type="submit" style="width:100%;">Login</button>
+        </form>
+        <p style="font-size:0.85rem; margin-top:1rem; text-align:center;">
+            <a href="{{ url_for('login') }}">Staff login</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

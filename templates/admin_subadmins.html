@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Sub-Admins{% endblock %}
+{% block content %}
+<h1>Sub-Admins</h1>
+<p style="color:#666; font-size:0.9rem;">
+    Sub-Admins can manage everything about this school — classes, subjects, teachers,
+    students, grading, school profile, email settings, and staff signup codes — but
+    they cannot create, edit, or remove other Sub-Admins, and they don't have any
+    greater access than you do. Only you (the main Admin) can manage this page.
+</p>
+
+<div class="card">
+    <h3>Add a Sub-Admin</h3>
+    <form method="POST">
+        <label>Full Name</label>
+        <input type="text" name="name" required>
+        <label>Username</label>
+        <input type="text" name="username" required>
+        <label>Password</label>
+        <input type="password" name="password" required minlength="6">
+        <button class="btn" type="submit">Add Sub-Admin</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Current Sub-Admins</h3>
+    {% if subadmins %}
+    <table>
+        <tr><th>Name</th><th>Username</th><th>Actions</th></tr>
+        {% for s in subadmins %}
+        <tr>
+            <td>{{ s.name }}</td>
+            <td>{{ s.username }}</td>
+            <td style="white-space:nowrap;">
+                <form method="POST" action="{{ url_for('reset_subadmin_password', user_id=s.id) }}" class="inline"
+                      onsubmit="return confirm('Reset the password for {{ s.name }}?');">
+                    <button class="btn btn-small" type="submit">Reset Password</button>
+                </form>
+                <form method="POST" action="{{ url_for('delete_subadmin', user_id=s.id) }}" class="inline"
+                      onsubmit="return confirm('Remove Sub-Admin {{ s.name }}?');">
+                    <button class="btn btn-small" style="background:#b3261e;" type="submit">Remove</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p style="color:#999;">No Sub-Admins yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

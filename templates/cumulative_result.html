@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Annual / Cumulative Result{% endblock %}
+{% block content %}
+<div class="report-header">
+    {% if school_logo_url %}<img src="{{ school_logo_url }}" alt="{{ school_name }}" class="report-logo"><br>{% endif %}
+    <h2 style="margin:0.2rem 0;">{{ school_name }}</h2>
+    <h1>Annual / Cumulative Result</h1>
+    <p>{{ academic_session.name }}</p>
+</div>
+
+<div class="no-print" style="margin-bottom:1rem;">
+    <form method="GET" class="inline" style="display:inline-block; margin-right:0.5rem;">
+        <label style="display:inline; font-weight:normal;">Session:</label>
+        <select name="session_id" onchange="this.form.submit()" style="width:auto; display:inline-block;">
+            {% for s in all_sessions %}
+            <option value="{{ s.id }}" {% if s.id == academic_session.id %}selected{% endif %}>{{ s.name }}{% if s.is_active %} (active){% endif %}</option>
+            {% endfor %}
+        </select>
+    </form>
+    <a class="btn" href="{{ url_for('cumulative_result_pdf', student_id=student.id, session_id=academic_session.id) }}">⬇ Download PDF</a>
+    <a class="btn" href="{{ url_for('result', student_id=student.id) }}">&larr; Back to Term Result</a>
+    <button class="btn btn-gold" onclick="window.print()">🖨 Print</button>
+</div>
+
+<div class="card">
+    <div class="grid-2">
+        <div>
+            <p><b>Name:</b> {{ student_full_name(student) }}</p>
+            <p><b>Admission No. / Register No.:</b> {{ student.admission_no }}</p>
+            <p><b>Class / Arm:</b> {{ class_row.name }}</p>
+            {% if class_row.category %}<p><b>Category:</b> {{ class_row.category }}</p>{% endif %}
+        </div>
+        <div>
+            <p><b>Cumulative Average:</b> {{ average }}</p>
+            <p><b>Grade:</b> {{ grade }} ({{ remark }})</p>
+            <p><b>Position:</b> {{ position }} of {{ class_size }}</p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Academic Performance Across the Session</h3>
+    <p style="color:#666; font-size:0.85rem;">
+        Cumulative Average is the mean of the totals from every term below that has a score
+        recorded for that subject.
+    </p>
+    <div style="overflow-x:auto;">
+    <table>
+        <tr>
+            <th>Subject</th>
+            {% for t in terms %}<th>{{ t.name }}</th>{% endfor %}
+            <th>Cumulative Avg</th>
+            <th>Grade</th>
+        </tr>
+        {% for s in subjects %}
+        <tr>
+            <td>{{ s.name }}</td>
+            {% for v in s.term_values %}<td>{{ v if v is not none else '-' }}</td>{% endfor %}
+            <td>{{ s.average }}</td>
+            <td>{{ s.grade }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    </div>
+</div>
+{% endblock %}

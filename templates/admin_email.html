@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Email Settings{% endblock %}
+{% block content %}
+<h1>Email Settings</h1>
+<p style="color:#666; font-size:0.9rem;">
+    Configure an SMTP account so results can be emailed to parents from the
+    broadsheet and result pages. This uses standard SMTP, so it works with
+    most email providers and transactional email services (e.g. SendGrid,
+    Mailgun, Gmail with an app password). <b>Note:</b> if you're hosting on
+    PythonAnywhere's free plan, outbound SMTP may be restricted — this
+    generally requires a paid plan, or an HTTP-based provider. See
+    DEPLOY_PYTHONANYWHERE.md for details.
+</p>
+
+<div class="card" style="max-width:520px;">
+    <h3>SMTP Configuration</h3>
+    <form method="POST">
+        <input type="hidden" name="action" value="save">
+        <label>SMTP Host</label>
+        <input type="text" name="smtp_host" value="{{ settings.smtp_host or '' }}" placeholder="e.g. smtp.sendgrid.net">
+
+        <label>SMTP Port</label>
+        <input type="number" name="smtp_port" value="{{ settings.smtp_port or '' }}" placeholder="587 or 465">
+
+        <label>SMTP Username</label>
+        <input type="text" name="smtp_username" value="{{ settings.smtp_username or '' }}">
+
+        <label>SMTP Password</label>
+        <input type="password" name="smtp_password" value="{{ settings.smtp_password or '' }}">
+
+        <label style="font-weight:normal; display:flex; align-items:center; gap:0.5rem; margin-top:0.75rem;">
+            <input type="checkbox" name="smtp_use_tls" style="width:auto;" {% if settings.smtp_use_tls %}checked{% endif %}>
+            Use STARTTLS (recommended for port 587)
+        </label>
+
+        <label>"From" Email Address</label>
+        <input type="email" name="smtp_from_email" value="{{ settings.smtp_from_email or '' }}" placeholder="results@yourschool.com">
+
+        <label>"From" Name</label>
+        <input type="text" name="smtp_from_name" value="{{ settings.smtp_from_name or '' }}" placeholder="e.g. Greenwood Secondary School">
+
+        <button class="btn" type="submit">Save Settings</button>
+    </form>
+</div>
+
+<div class="card" style="max-width:520px;">
+    <h3>Send a Test Email</h3>
+    <p style="font-size:0.9rem; color:#666;">Save your settings above first, then send yourself a test to confirm it works.</p>
+    <form method="POST">
+        <input type="hidden" name="action" value="test">
+        <label>Send test email to</label>
+        <input type="email" name="test_email" required placeholder="you@example.com">
+        <button class="btn btn-gold" type="submit">Send Test</button>
+    </form>
+</div>
+{% endblock %}

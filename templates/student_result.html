@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}My Result{% endblock %}
+{% block content %}
+<div class="report-header">
+    {% if school_logo_url %}<img src="{{ school_logo_url }}" alt="{{ school_name }}" class="report-logo"><br>{% endif %}
+    <h2 style="margin:0.2rem 0;">{{ school_name }}</h2>
+    <h1>Terminal Report Sheet</h1>
+    <p>{{ term.session_name }} &mdash; {{ term.name }}</p>
+</div>
+
+<div class="no-print" style="margin-bottom:1rem;">
+    <a class="btn" href="{{ url_for('student_result_pdf', term_id=term.id) }}">⬇ Download PDF</a>
+    <button class="btn btn-gold" onclick="window.print()">🖨 Print</button>
+    <a class="btn" href="{{ url_for('student_dashboard') }}">← Back to My Results</a>
+</div>
+
+<div class="card">
+    <div class="grid-2">
+        <div>
+            <p><b>Name:</b> {{ student_full_name(student) }}</p>
+            <p><b>Admission No. / Register No.:</b> {{ student.admission_no }}</p>
+            <p><b>Class / Arm:</b> {{ class_row.name }}</p>
+        </div>
+        <div>
+            <p><b>Total Score:</b> {{ total }}</p>
+            <p><b>Average:</b> {{ average }}</p>
+            <p><b>Position:</b> {{ position }} of {{ class_size }}</p>
+            <p><b>Number of Subjects Written:</b> {{ subjects_written }} of {{ subjects|length }}</p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Academic Performance</h3>
+    <table>
+        <tr><th>Subject</th><th>CA1</th><th>CA2</th><th>Exam</th><th>Total</th><th>Grade</th><th>Remark</th></tr>
+        {% for s in subjects %}
+        <tr>
+            <td>{{ s.name }}</td><td>{{ s.ca1 }}</td><td>{{ s.ca2 }}</td><td>{{ s.exam }}</td>
+            <td>{{ s.total }}</td><td>{{ s.grade }}</td><td>{{ s.remark }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+{% if ratings %}
+<div class="card">
+    <h3>Psychomotor / Affective Skills</h3>
+    <table>
+        <tr><th>Trait</th><th>Category</th><th>Rating (1-5)</th></tr>
+        {% for r in ratings %}
+        <tr><td>{{ r.name }}</td><td>{{ r.category|title }}</td><td>{{ r.rating }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Attendance &amp; Comments</h3>
+    <p><b>Days School Opened:</b> {{ info.days_school_opened if info else '—' }} &nbsp;
+       <b>Present:</b> {{ info.days_present if info else '—' }} &nbsp;
+       <b>Absent:</b> {{ info.days_absent if info else '—' }}</p>
+    {% if info and info.teacher_comment %}<p><b>Teacher's Comment:</b> {{ info.teacher_comment }}</p>{% endif %}
+    {% if info and info.principal_comment %}<p><b>Principal's Comment:</b> {{ info.principal_comment }}</p>{% endif %}
+</div>
+{% endblock %}

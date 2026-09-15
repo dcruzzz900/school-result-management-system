@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}My Class Register{% endblock %}
+{% block content %}
+<h1>My Class Register — {{ class_row.name }}</h1>
+<p style="color:#666; font-size:0.9rem;">
+    Enter your students' names exactly as written in your class register. You can add new
+    students here and correct existing names, Admission No. / Register No., or parent
+    contact details.
+</p>
+
+<a class="btn btn-small" href="{{ url_for('roll_call', class_id=class_row.id) }}">Take Today's Roll Call</a>
+<a class="btn btn-small" href="{{ url_for('roll_call_history', class_id=class_row.id) }}">Attendance History</a>
+
+<div class="card">
+    <h3>Offline CSV Import/Export</h3>
+    <p style="font-size:0.9rem; color:#666;">
+        Download your class register as a CSV, fill it in offline (add new students or
+        correct details), then upload it back. Existing students are matched by
+        Admission No. / Register No. and updated; unmatched rows are added as new students.
+    </p>
+    <a class="btn btn-small" href="{{ url_for('my_class_csv_template', class_id=class_row.id) }}">Download Class Register CSV</a>
+    <form method="POST" action="{{ url_for('my_class_csv_upload', class_id=class_row.id) }}" enctype="multipart/form-data" style="margin-top:1rem;">
+        <label>Upload Completed CSV</label>
+        <input type="file" name="csv_file" accept=".csv" required>
+        <button class="btn" type="submit">Upload &amp; Save</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Add a Student</h3>
+    <form method="POST">
+        <div class="grid-2">
+            <div>
+                <label>Admission No. / Register No. (as in your class register)</label>
+                <input type="text" name="admission_no" required>
+                <label>First Name</label>
+                <input type="text" name="first_name" required>
+                <label>Last Name</label>
+                <input type="text" name="last_name" required>
+                <label>Other Names</label>
+                <input type="text" name="other_names">
+                <label>Date of Birth</label>
+                <input type="date" name="date_of_birth">
+            </div>
+            <div>
+                <label>Gender</label>
+                <select name="gender">
+                    <option value="">-- select --</option>
+                    <option value="M">Male</option>
+                    <option value="F">Female</option>
+                </select>
+                <label>Religion</label>
+                <input type="text" name="religion">
+                <label>Parent/Guardian Name</label>
+                <input type="text" name="parent_name">
+                <label>Parent/Guardian Address</label>
+                <input type="text" name="parent_address">
+                <label>Parent/Guardian Email</label>
+                <input type="email" name="parent_email">
+                <label>Parent/Guardian Phone</label>
+                <input type="text" name="parent_phone">
+            </div>
+        </div>
+        <button class="btn" type="submit">Add Student</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Class Register</h3>
+    <table>
+        <tr><th>Admission No. / Register No.</th><th>Name</th><th>Gender</th><th>Actions</th></tr>
+        {% for s in students %}
+        <tr>
+            <td>{{ s.admission_no }}</td>
+            <td>{{ student_full_name(s) }}</td>
+            <td>{{ s.gender or '—' }}</td>
+            <td>
+                <a class="btn btn-small" href="{{ url_for('student_profile', student_id=s.id) }}">View</a>
+                <button class="btn btn-small" type="button" onclick="document.getElementById('edit_{{ s.id }}').classList.toggle('hidden-row')">Edit</button>
+            </td>
+        </tr>
+        <tr id="edit_{{ s.id }}" class="hidden-row">
+            <td colspan="4">
+                <form method="POST" action="{{ url_for('my_class_edit_student', class_id=class_row.id, student_id=s.id) }}"
+                      style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; padding:0.5rem 0;">
+                    <div><label>Adm./Reg. No.</label><input type="text" name="admission_no" value="{{ s.admission_no }}" style="width:7rem;" required></div>
+                    <div><label>First Name</label><input type="text" name="first_name" value="{{ s.first_name }}" required></div>
+                    <div><label>Last Name</label><input type="text" name="last_name" value="{{ s.last_name }}" required></div>
+                    <div><label>Other Names</label><input type="text" name="other_names" value="{{ s.other_names or '' }}"></div>
+                    <div><label>Gender</label>
+                        <select name="gender">
+                            <option value="" {% if not s.gender %}selected{% endif %}>-- --</option>
+                            <option value="M" {% if s.gender=='M' %}selected{% endif %}>Male</option>
+                            <option value="F" {% if s.gender=='F' %}selected{% endif %}>Female</option>
+                        </select>
+                    </div>
+                    <div><label>Date of Birth</label><input type="date" name="date_of_birth" value="{{ s.date_of_birth or '' }}"></div>
+                    <div><label>Religion</label><input type="text" name="religion" value="{{ s.religion or '' }}"></div>
+                    <div><label>Parent Name</label><input type="text" name="parent_name" value="{{ s.parent_name or '' }}"></div>
+                    <div><label>Parent Address</label><input type="text" name="parent_address" value="{{ s.parent_address or '' }}"></div>
+                    <div><label>Parent Email</label><input type="email" name="parent_email" value="{{ s.parent_email or '' }}"></div>
+                    <div><label>Parent Phone</label><input type="text" name="parent_phone" value="{{ s.parent_phone or '' }}"></div>
+                    <button class="btn btn-small" type="submit">Save</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+<style>.hidden-row { display: none; }</style>
+{% endblock %}

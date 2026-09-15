@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Assign Subjects{% endblock %}
+{% block content %}
+<h1>Assign Subjects to Classes</h1>
+
+<div class="card">
+    <h3>New Assignment</h3>
+    <form method="POST">
+        <label>Class</label>
+        <select name="class_id" required>
+            {% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select>
+        <label>Subject</label>
+        <select name="subject_id" required>
+            {% for s in subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+        </select>
+        <label>Teacher</label>
+        <select name="teacher_id">
+            <option value="">-- unassigned --</option>
+            {% for t in teachers %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+        </select>
+        <button class="btn" type="submit">Assign</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Current Assignments</h3>
+    <table>
+        <tr><th>Class</th><th>Subject</th><th>Teacher</th><th>Change Teacher</th><th>Actions</th></tr>
+        {% for a in assignments %}
+        <tr>
+            <td>{{ a.class_name }}</td>
+            <td>{{ a.subject_name }}</td>
+            <td>{{ a.teacher_name or '—' }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('assign_teacher', cs_id=a.id) }}" class="inline">
+                    <select name="teacher_id" style="width:auto; display:inline-block;" onchange="this.form.submit()">
+                        <option value="">-- unassigned --</option>
+                        {% for t in teachers %}
+                        <option value="{{ t.id }}" {% if t.id == a.teacher_id %}selected{% endif %}>{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </td>
+            <td>
+                <form method="POST" action="{{ url_for('delete_class_subject', cs_id=a.id) }}"
+                      onsubmit="return confirm('Remove {{ a.subject_name }} from {{ a.class_name }}?');">
+                    <button class="btn btn-small" style="background:#b3261e;" type="submit">Remove</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

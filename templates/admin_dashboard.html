@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<h1>Admin Dashboard</h1>
+{% if term %}
+<p class="badge">Active: {{ term.session_name }} — {{ term.name }}</p>
+{% else %}
+<p class="flash flash-error">No active term set. <a href="{{ url_for('admin_terms') }}">Set one up</a>.</p>
+{% endif %}
+
+<div class="stat-grid">
+    <div class="stat-box"><div class="num">{{ stats.students }}</div><div class="label">Students</div></div>
+    <div class="stat-box"><div class="num">{{ stats.classes }}</div><div class="label">Classes</div></div>
+    <div class="stat-box"><div class="num">{{ stats.teachers }}</div><div class="label">Teachers</div></div>
+    <div class="stat-box"><div class="num">{{ stats.subjects }}</div><div class="label">Subjects</div></div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h3>School Setup</h3>
+        <p>Manage classes, subjects, students and teachers.</p>
+        <a class="btn" href="{{ url_for('admin_classes') }}">Classes</a>
+        <a class="btn" href="{{ url_for('admin_subjects') }}">Subjects</a>
+        <a class="btn" href="{{ url_for('admin_class_subjects') }}">Assign Subjects</a>
+        <a class="btn" href="{{ url_for('admin_students') }}">Students</a>
+        <a class="btn" href="{{ url_for('admin_teachers') }}">Teachers</a>
+    </div>
+    <div class="card">
+        <h3>Results</h3>
+        <p>View broadsheets and terminal results by class.</p>
+        <a class="btn btn-gold" href="{{ url_for('classes_list') }}">Go to Classes</a>
+    </div>
+</div>
+{% endblock %}

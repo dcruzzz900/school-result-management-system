@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Compose Notification{% endblock %}
+{% block content %}
+<h1>Compose Notification</h1>
+<p style="color:#666; font-size:0.9rem;">Sent to everyone in your school matching the audience you choose below.</p>
+
+<div class="card" style="max-width:520px;">
+    <form method="POST">
+        <label>Send To</label>
+        <select name="target_role" required>
+            <option value="all">Everyone (Staff &amp; Students)</option>
+            <option value="teacher">Teachers Only</option>
+            <option value="student">Students Only</option>
+        </select>
+
+        <label>Title</label>
+        <input type="text" name="title" required maxlength="150">
+
+        <label>Message</label>
+        <textarea name="message" rows="5" required></textarea>
+
+        <button class="btn" type="submit" style="margin-top:1rem;">Send Notification</button>
+    </form>
+</div>
+{% endblock %}

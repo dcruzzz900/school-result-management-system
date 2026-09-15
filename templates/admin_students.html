@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Students{% endblock %}
+{% block content %}
+<h1>Students</h1>
+
+<div class="card">
+    <h3>Bulk Upload Students (CSV)</h3>
+    <p style="font-size:0.9rem; color:#666;">
+        Upload a CSV with columns: <code>admission_no, first_name, last_name,
+        other_names, gender, class_name, date_of_birth, religion, parent_name,
+        parent_address, parent_email, parent_phone</code>.
+        Only admission_no, first_name, last_name, and class_name are required — the rest
+        can be left blank. The class must already exist (see Classes above) —
+        <code>class_name</code> should match it exactly (not case-sensitive).
+        <b>Admission No. / Register No.</b> only needs to be unique within the same class
+        (arm), so different arms of the same class (e.g. SS1 Science 1 and SS1 Science 2)
+        can reuse the same numbers for different students.
+    </p>
+    <a class="btn btn-small" href="{{ url_for('students_csv_template') }}">Download CSV Template</a>
+    <form method="POST" action="{{ url_for('students_bulk_upload') }}" enctype="multipart/form-data" style="margin-top:1rem;">
+        <label>CSV File</label>
+        <input type="file" name="csv_file" accept=".csv" required>
+        <button class="btn" type="submit">Upload &amp; Import</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Add a Student</h3>
+    <form method="POST">
+        <div class="grid-2">
+            <div>
+                <label>Admission No. / Register No. (unique within this class)</label>
+                <input type="text" name="admission_no" required>
+                <label>First Name</label>
+                <input type="text" name="first_name" required>
+                <label>Last Name</label>
+                <input type="text" name="last_name" required>
+                <label>Other Names</label>
+                <input type="text" name="other_names">
+                <label>Gender</label>
+                <select name="gender">
+                    <option value="M">Male</option>
+                    <option value="F">Female</option>
+                </select>
+                <label>Class / Arm</label>
+                <select name="class_id" required>
+                    {% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                </select>
+                <label>Date of Birth</label>
+                <input type="date" name="date_of_birth">
+                <label>Religion</label>
+                <input type="text" name="religion">
+            </div>
+            <div>
+                <label>Parent/Guardian Name</label>
+                <input type="text" name="parent_name">
+                <label>Parent/Guardian Address</label>
+                <input type="text" name="parent_address">
+                <label>Parent/Guardian Email (for result notifications)</label>
+                <input type="email" name="parent_email">
+                <label>Parent/Guardian Phone</label>
+                <input type="text" name="parent_phone">
+            </div>
+        </div>
+        <button class="btn" type="submit">Add Student</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>All Students</h3>
+    <form method="GET" style="margin-bottom:1rem;">
+        <label>Filter by class</label>
+        <select name="class_id" onchange="this.form.submit()">
+            <option value="">-- all classes --</option>
+            {% for c in classes %}
+            <option value="{{ c.id }}" {% if class_filter and class_filter|int == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+    </form>
+    <table>
+        <tr><th>Admission No. / Register No.</th><th>Name</th><th>Gender</th><th>Class</th><th>Parent Email</th><th>Actions</th></tr>
+        {% for s in students %}
+        <tr>
+            <td>{{ s.admission_no }}</td>
+            <td>{{ student_full_name(s) }}</td>
+            <td>{{ s.gender }}</td>
+            <td>{{ s.class_name }}</td>
+            <td>{{ s.parent_email or '—' }}</td>
+            <td style="white-space:nowrap;">
+                <a class="btn btn-small" href="{{ url_for('student_profile', student_id=s.id) }}">View</a>
+                <form method="POST" action="{{ url_for('delete_student', student_id=s.id) }}" class="inline"
+                      onsubmit="return confirm('Delete {{ student_full_name(s) }} and all their scores/records? This cannot be undone.');">
+                    <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

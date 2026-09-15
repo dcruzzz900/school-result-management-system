@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}My Results{% endblock %}
+{% block content %}
+<h1>Welcome, {{ student_full_name(student) }}</h1>
+<div class="card">
+    <p><b>Admission No. / Register No.:</b> {{ student.admission_no }}</p>
+    <p><b>Class / Arm:</b> {{ class_row.name }}</p>
+</div>
+
+<div class="card">
+    <h3>Your Published Results</h3>
+    {% if published_terms %}
+    <table>
+        <tr><th>Session</th><th>Term</th><th>Action</th></tr>
+        {% for t in published_terms %}
+        <tr>
+            <td>{{ t.session_name }}</td>
+            <td>{{ t.name }}</td>
+            <td><a class="btn btn-small" href="{{ url_for('student_result', term_id=t.id) }}">View Result</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p style="color:#999;">No results have been published yet. Check back once your school publishes a term's results.</p>
+    {% endif %}
+</div>
+{% endblock %}

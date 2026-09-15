@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}My Class{% endblock %}
+{% block content %}
+<h1>My Class</h1>
+<p style="color:#666; font-size:0.9rem;">You're the form teacher for more than one class — choose which one to manage.</p>
+<div class="card">
+    <table>
+        <tr><th>Class</th><th>Actions</th></tr>
+        {% for c in classes %}
+        <tr>
+            <td>{{ c.name }}{% if c.category %} <span class="badge">{{ c.category }}</span>{% endif %}</td>
+            <td>
+                <a class="btn btn-small" href="{{ url_for('my_class_roster', class_id=c.id) }}">Manage Register</a>
+                <a class="btn btn-small" href="{{ url_for('roll_call', class_id=c.id) }}">Take Roll Call</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

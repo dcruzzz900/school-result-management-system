@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Terminal Result{% endblock %}
+{% block content %}
+<div class="report-header">
+    {% if school_logo_url %}<img src="{{ school_logo_url }}" alt="{{ school_name }}" class="report-logo"><br>{% endif %}
+    <h2 style="margin:0.2rem 0;">{{ school_name }}</h2>
+    <h1>Terminal Report Sheet</h1>
+    <p>{{ term.session_name }} &mdash; {{ term.name }}</p>
+</div>
+
+<div class="no-print" style="margin-bottom:1rem;">
+    <form method="GET" class="inline" style="display:inline-block; margin-right:0.5rem;">
+        <label style="display:inline; font-weight:normal;">Term:</label>
+        <select name="term_id" onchange="this.form.submit()" style="width:auto; display:inline-block;">
+            {% for t in all_terms %}
+            <option value="{{ t.id }}" {% if t.id == term.id %}selected{% endif %}>{{ t.session_name }} — {{ t.name }}{% if t.is_active %} (active){% endif %}</option>
+            {% endfor %}
+        </select>
+    </form>
+    <a class="btn" href="{{ url_for('result_pdf', student_id=student.id, term_id=term.id) }}">⬇ Download PDF</a>
+    <button class="btn btn-gold" onclick="window.print()">🖨 Print</button>
+    {% if cumulative_enabled %}
+    <a class="btn" href="{{ url_for('cumulative_result', student_id=student.id) }}">📊 Annual / Cumulative Result</a>
+    {% endif %}
+    {% if not term.is_active %}
+    <span style="font-size:0.85rem; color:#999;">Viewing a past term — switch to the active term to email results.</span>
+    {% elif not term.is_published %}
+    <span style="font-size:0.85rem; color:#999;">Results for this term aren't published yet — emailing is disabled until an admin publishes them (Setup → Terms).</span>
+    {% elif student.parent_email %}
+    <form method="POST" action="{{ url_for('email_result', student_id=student.id) }}" class="inline">
+        <button class="btn" type="submit">✉ Email to Parent</button>
+    </form>
+    {% else %}
+    <span style="font-size:0.85rem; color:#999;">No parent email on file — add one from Setup → Students to enable emailing.</span>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="grid-2">
+        <div>
+            <p><b>Name:</b> {{ student_full_name(student) }}</p>
+            <p><b>Admission No. / Register No.:</b> {{ student.admission_no }}</p>
+            <p><b>Class / Arm:</b> {{ class_row.name }}</p>
+            {% if class_row.category %}<p><b>Category:</b> {{ class_row.category }}</p>{% endif %}
+            <p><b>Date of Birth:</b> {{ student.date_of_birth or '—' }}</p>
+        </div>
+        <div>
+            <p><b>Total Score:</b> {{ total }}</p>
+            <p><b>Average:</b> {{ average }}</p>
+            <p><b>Position:</b> {{ position }} of {{ class_size }}</p>
+            <p><b>Number of Subjects Written:</b> {{ subjects_written }} of {{ subjects|length }}</p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Academic Performance</h3>
+    <table>
+        <tr><th>Subject</th><th>CA1</th><th>CA2</th><th>Exam</th><th>Total</th><th>Grade</th><th>Remark</th></tr>
+        {% for s in subjects %}
+        <tr>
+            <td>{{ s.name }}</td><td>{{ s.ca1 }}</td><td>{{ s.ca2 }}</td><td>{{ s.exam }}</td>
+            <td>{{ s.total }}</td><td>{{ s.grade }}</td><td>{{ s.remark }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+{% if ratings %}
+<div class="card">
+    <h3>Psychomotor / Affective Skills</h3>
+    <table>
+        <tr><th>Trait</th><th>Category</th><th>Rating (1-5)</th></tr>
+        {% for r in ratings %}
+        <tr><td>{{ r.name }}</td><td>{{ r.category|title }}</td><td>{{ r.rating }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Attendance &amp; Comments</h3>
+    <p><b>Days School Opened:</b> {{ info.days_school_opened if info else '—' }} &nbsp;
+       <b>Present:</b> {{ info.days_present if info else '—' }} &nbsp;
+       <b>Absent:</b> {{ info.days_absent if info else '—' }}</p>
+
+    <p><b>Teacher's Comment:</b><br>
+        {% if info and info.teacher_comment %}{{ info.teacher_comment }}
+        {% else %}<span class="comment-blank">&nbsp;</span>{% endif %}
+    </p>
+    <p class="signature-line">
+        <span>Teacher's Signature: __________________</span>
+        <span>Date: {{ info.teacher_signed_date if info and info.teacher_signed_date else '__________________' }}</span>
+    </p>
+
+    <p><b>Principal's Comment:</b><br>
+        {% if info and info.principal_comment %}{{ info.principal_comment }}
+        {% else %}<span class="comment-blank">&nbsp;</span>{% endif %}
+    </p>
+    <p class="signature-line">
+        <span>Principal's Signature: __________________</span>
+        <span>Date: {{ info.principal_signed_date if info and info.principal_signed_date else '__________________' }}</span>
+    </p>
+</div>
+
+<div class="card no-print">
+    <h3>Update Attendance, Comments &amp; Skill Ratings</h3>
+    <form method="POST" action="{{ url_for('result_extra', student_id=student.id) }}">
+        <input type="hidden" name="term_id" value="{{ term.id }}">
+        <div class="grid-2">
+            <div>
+                <label>Days School Opened</label>
+                <input type="number" name="days_school_opened" value="{{ info.days_school_opened if info else 0 }}">
+                <label>Days Present</label>
+                <input type="number" name="days_present" value="{{ info.days_present if info else 0 }}">
+                <label>Days Absent</label>
+                <input type="number" name="days_absent" value="{{ info.days_absent if info else 0 }}">
+                <p style="font-size:0.8rem; color:#999;">Present + Absent cannot be more than Days School Opened.</p>
+            </div>
+            <div>
+                <label>Teacher's Comment</label>
+                <textarea name="teacher_comment" rows="2">{{ info.teacher_comment if info else '' }}</textarea>
+                <label>Teacher Signed Date</label>
+                <input type="date" name="teacher_signed_date" value="{{ info.teacher_signed_date if info else '' }}">
+                <label>Principal's Comment</label>
+                <textarea name="principal_comment" rows="2">{{ info.principal_comment if info else '' }}</textarea>
+                <label>Principal Signed Date</label>
+                <input type="date" name="principal_signed_date" value="{{ info.principal_signed_date if info else '' }}">
+            </div>
+        </div>
+
+        <h4>Skill Ratings (1 = Needs Improvement, 5 = Excellent)</h4>
+        <div class="grid-2">
+            {% for trait in all_traits %}
+            <div>
+                <label>{{ trait.name }} ({{ trait.category|title }})</label>
+                <select name="trait_{{ trait.id }}">
+                    <option value="">-- not rated --</option>
+                    {% for n in range(1,6) %}
+                    <option value="{{ n }}"
+                        {% for r in ratings %}{% if r.name == trait.name and r.rating == n %}selected{% endif %}{% endfor %}>
+                        {{ n }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endfor %}
+        </div>
+        <button class="btn" type="submit">Save Details</button>
+    </form>
+</div>
+<style>
+.comment-blank { display: inline-block; border-bottom: 1px solid #999; width: 100%; height: 1.5em; }
+.signature-line { display: flex; justify-content: space-between; gap: 1rem; margin-top: 0.5rem; font-size: 0.9rem; }
+</style>
+{% endblock %}

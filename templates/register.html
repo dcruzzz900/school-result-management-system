@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Staff Registration{% endblock %}
+{% block content %}
+<div class="login-wrapper" style="max-width:480px;">
+    <div class="card">
+        <h2>Create Your Staff Login</h2>
+        <p style="color:#666; font-size:0.9rem;">
+            You'll need the staff signup code from your school's admin to create an account.
+        </p>
+        <form method="POST">
+            <label>Your School</label>
+            <select name="school_id" required>
+                <option value="" disabled selected>-- choose your school --</option>
+                {% for s in schools %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+            </select>
+
+            <label>Full Name</label>
+            <input type="text" name="name" required>
+
+            <label>Choose a Username</label>
+            <input type="text" name="username" required>
+
+            <label>Password</label>
+            <input type="password" name="password" required minlength="6">
+
+            <label>Confirm Password</label>
+            <input type="password" name="confirm_password" required minlength="6">
+
+            <label>Staff Signup Code</label>
+            <input type="text" name="signup_code" required>
+
+            <label>What is your position?</label>
+            <div style="margin-top:0.4rem;">
+                {% for value, display in position_choices %}
+                <label style="font-weight:normal; display:flex; align-items:center; gap:0.5rem; margin-top:0.4rem;">
+                    <input type="radio" name="position" value="{{ value }}" required style="width:auto;">
+                    {{ display }}
+                </label>
+                {% endfor %}
+            </div>
+
+            <label>Security Question (used to recover your account if you forget your password)</label>
+            <select name="security_question" required>
+                <option value="" disabled selected>-- choose a question --</option>
+                {% for q in security_questions %}
+                <option value="{{ q }}">{{ q }}</option>
+                {% endfor %}
+            </select>
+
+            <label>Your Answer</label>
+            <input type="text" name="security_answer" required>
+
+            <button class="btn" type="submit" style="width:100%; margin-top:1rem;">Create Login</button>
+        </form>
+
+        <p style="font-size:0.85rem; margin-top:1.5rem;">
+            <a href="{{ url_for('login') }}">Back to login</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

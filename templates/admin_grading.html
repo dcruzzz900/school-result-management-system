@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Grading Setup{% endblock %}
+{% block content %}
+<h1>Grading Setup</h1>
+
+<div class="card">
+    <h3>Score Weighting</h3>
+    <form method="POST">
+        <div class="grid-2">
+            <div>
+                <label>CA1 Max</label>
+                <input type="number" step="0.01" name="ca1_max" value="{{ config.ca1_max }}" required>
+            </div>
+            <div>
+                <label>CA2 Max</label>
+                <input type="number" step="0.01" name="ca2_max" value="{{ config.ca2_max }}" required>
+            </div>
+        </div>
+        <label>Exam Max</label>
+        <input type="number" step="0.01" name="exam_max" value="{{ config.exam_max }}" required>
+        <button class="btn" type="submit">Save Weighting</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Grade Scale</h3>
+    <p style="font-size:0.82rem; color:#666; margin-top:-0.5rem;">Grade / Min score / Max score / Remark</p>
+    {% for g in scale %}
+    <div class="grade-scale-row">
+        <form method="POST" action="{{ url_for('edit_grade_scale', scale_id=g.id) }}" class="grade-scale-editform">
+            <input type="text" name="grade" value="{{ g.grade }}" style="width:3.5rem;" required>
+            <input type="number" step="0.01" name="min_score" value="{{ g.min_score }}" style="width:5rem;" required>
+            <input type="number" step="0.01" name="max_score" value="{{ g.max_score }}" style="width:5rem;" required>
+            <input type="text" name="remark" value="{{ g.remark or '' }}" placeholder="Remark" style="flex:1; min-width:7rem;">
+            <button class="btn btn-small" type="submit">Save</button>
+        </form>
+        <form method="POST" action="{{ url_for('delete_grade_scale', scale_id=g.id) }}"
+              onsubmit="return confirm('Delete the {{ g.grade }} grade band?');">
+            <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h3>Add a Grade Band</h3>
+    <form method="POST" action="{{ url_for('add_grade_scale') }}">
+        <div class="grid-2">
+            <div>
+                <label>Grade (e.g. A)</label>
+                <input type="text" name="grade" required>
+                <label>Min Score</label>
+                <input type="number" step="0.01" name="min_score" required>
+            </div>
+            <div>
+                <label>Remark (e.g. Excellent)</label>
+                <input type="text" name="remark">
+                <label>Max Score</label>
+                <input type="number" step="0.01" name="max_score" required>
+            </div>
+        </div>
+        <button class="btn" type="submit">Add Grade Band</button>
+    </form>
+    <p style="font-size:0.85rem; color:#666; margin-top:0.75rem;">
+        Grade bands should not overlap — each total score (0-100) should fall inside exactly one band.
+    </p>
+</div>
+{% endblock %}

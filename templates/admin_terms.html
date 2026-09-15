@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Sessions & Terms{% endblock %}
+{% block content %}
+<h1>Sessions &amp; Terms</h1>
+
+<div class="card">
+    <h3>Cumulative / Annual Result</h3>
+    <p style="font-size:0.85rem; color:#666;">
+        When enabled, an Annual/Cumulative Result becomes available for each class and student,
+        averaging every subject across 1st, 2nd and 3rd Term for the session. When disabled,
+        terms operate completely independently, as before.
+    </p>
+    <form method="POST">
+        <input type="hidden" name="action" value="toggle_cumulative">
+        <label style="font-weight:normal; display:flex; align-items:center; gap:0.4rem;">
+            <input type="checkbox" name="cumulative_enabled" style="width:auto;"
+                {% if school and school.cumulative_enabled %}checked{% endif %}
+                onchange="this.form.submit()">
+            Enable Cumulative Result
+        </label>
+    </form>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h3>New Session</h3>
+        <form method="POST">
+            <input type="hidden" name="action" value="new_session">
+            <label>Session name (e.g. 2026/2027)</label>
+            <input type="text" name="session_name" required>
+            <button class="btn" type="submit">Create Session</button>
+        </form>
+    </div>
+    <div class="card">
+        <h3>New Term</h3>
+        <form method="POST">
+            <input type="hidden" name="action" value="new_term">
+            <label>Session</label>
+            <select name="session_id" required>
+                {% for s in sessions %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+            </select>
+            <label>Term</label>
+            <select name="term_name" required>
+                <option>1st Term</option>
+                <option>2nd Term</option>
+                <option>3rd Term</option>
+            </select>
+            <button class="btn" type="submit">Create Term</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Sessions</h3>
+    <table>
+        <tr><th>Session</th><th>Status</th><th>Action</th></tr>
+        {% for s in sessions %}
+        <tr>
+            <td>{{ s.name }}</td>
+            <td>{% if s.is_active %}<span class="badge">Active</span>{% else %}—{% endif %}</td>
+            <td>
+                {% if not s.is_active %}
+                <form method="POST" class="inline">
+                    <input type="hidden" name="action" value="activate_session">
+                    <input type="hidden" name="session_id" value="{{ s.id }}">
+                    <button class="btn btn-small" type="submit">Activate</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div class="card">
+    <h3>Terms</h3>
+    <p style="font-size:0.85rem; color:#666;">
+        A term must be <b>Published</b> before its results can be emailed to parents — this
+        keeps parents from being emailed mid-term while scores are still being entered.
+    </p>
+    <table>
+        <tr><th>Term</th><th>Session</th><th>Status</th><th>Published?</th><th>Action</th></tr>
+        {% for t in terms %}
+        <tr>
+            <td>{{ t.name }}</td>
+            <td>{{ t.session_name }}</td>
+            <td>{% if t.is_active %}<span class="badge">Active</span>{% else %}—{% endif %}</td>
+            <td>{% if t.is_published %}<span class="badge" style="background:#1d7a4c;">Published</span>{% else %}—{% endif %}</td>
+            <td style="white-space:nowrap;">
+                {% if not t.is_active %}
+                <form method="POST" class="inline">
+                    <input type="hidden" name="action" value="activate_term">
+                    <input type="hidden" name="term_id" value="{{ t.id }}">
+                    <button class="btn btn-small" type="submit">Activate</button>
+                </form>
+                {% endif %}
+                {% if t.is_published %}
+                <form method="POST" class="inline">
+                    <input type="hidden" name="action" value="unpublish_term">
+                    <input type="hidden" name="term_id" value="{{ t.id }}">
+                    <button class="btn btn-small" type="submit">Unpublish</button>
+                </form>
+                {% else %}
+                <form method="POST" class="inline">
+                    <input type="hidden" name="action" value="publish_term">
+                    <input type="hidden" name="term_id" value="{{ t.id }}">
+                    <button class="btn btn-small btn-gold" type="submit">Publish Results</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}
