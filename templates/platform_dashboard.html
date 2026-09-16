@@ -27,7 +27,7 @@
         <table>
             <tr><th>Action</th><th>When</th></tr>
             {% for log in recent_audit %}
-            <tr><td>{{ log.action }} — {{ log.details or '' }}</td><td style="font-size:0.8rem;">{{ log.created_at }}</td></tr>
+            <tr><td>{{ log.action }} — {{ log.details or '' }}</td><td style="font-size:0.8rem;">{{ log.created_at|dmy }}</td></tr>
             {% endfor %}
         </table>
         {% else %}

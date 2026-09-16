@@ -18,6 +18,7 @@
     </p>
     <a class="btn btn-small" href="{{ url_for('score_csv_template', class_id=class_row.id, subject_id=subject_row.id) }}">Download CSV Template</a>
     <form method="POST" action="{{ url_for('score_csv_upload', class_id=class_row.id, subject_id=subject_row.id) }}" enctype="multipart/form-data" style="margin-top:1rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Upload Completed CSV</label>
         <input type="file" name="csv_file" accept=".csv" required>
         <button class="btn" type="submit">Upload &amp; Save Scores</button>
@@ -30,6 +31,7 @@
 </div>
 
 <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <table id="scoreTable">
         <tr>
             <th>Admission No. / Register No.</th>

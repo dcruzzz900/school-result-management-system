@@ -6,6 +6,7 @@
 <div class="card">
     <h3>New Assignment</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Class</label>
         <select name="class_id" required>
             {% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
@@ -34,6 +35,7 @@
             <td>{{ a.teacher_name or '—' }}</td>
             <td>
                 <form method="POST" action="{{ url_for('assign_teacher', cs_id=a.id) }}" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <select name="teacher_id" style="width:auto; display:inline-block;" onchange="this.form.submit()">
                         <option value="">-- unassigned --</option>
                         {% for t in teachers %}
@@ -45,6 +47,7 @@
             <td>
                 <form method="POST" action="{{ url_for('delete_class_subject', cs_id=a.id) }}"
                       onsubmit="return confirm('Remove {{ a.subject_name }} from {{ a.class_name }}?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" style="background:#b3261e;" type="submit">Remove</button>
                 </form>
             </td>

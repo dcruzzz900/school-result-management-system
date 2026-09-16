@@ -6,6 +6,7 @@
 <div class="card" style="max-width:560px;">
     <h3>Compose</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>School</label>
         <select name="school_id">
             <option value="">-- All Schools --</option>
@@ -39,7 +40,7 @@
         <tr><th>When</th><th>Scope</th><th>Audience</th><th>Title</th><th>Message</th></tr>
         {% for n in sent %}
         <tr>
-            <td style="font-size:0.85rem;">{{ n.created_at }}</td>
+            <td style="font-size:0.85rem;">{{ n.created_at|dmy }}</td>
             <td>{{ n.school_name or 'All Schools' }}</td>
             <td>{{ n.target_role }}</td>
             <td>{{ n.title }}</td>

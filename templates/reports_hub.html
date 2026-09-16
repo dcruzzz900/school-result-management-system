@@ -65,6 +65,12 @@
 </div>
 
 <div class="card">
+    <h3>Staff Attendance</h3>
+    <p style="font-size:0.9rem; color:#666;">Present/Absent/Late/Leave totals per staff member for a date range, with CSV, Excel and PDF export.</p>
+    <a class="btn btn-small" href="{{ url_for('staff_attendance_history') }}">Go to Staff Attendance History &amp; Reports</a>
+</div>
+
+<div class="card">
     <h3>Student Academic History</h3>
     <p style="font-size:0.9rem; color:#666;">Every subject score for one student, across every session/term they've been enrolled in.</p>
     <form method="GET" action="{{ url_for('report_student_history') }}" class="report-form">

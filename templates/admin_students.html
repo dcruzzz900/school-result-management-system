@@ -18,6 +18,7 @@
     </p>
     <a class="btn btn-small" href="{{ url_for('students_csv_template') }}">Download CSV Template</a>
     <form method="POST" action="{{ url_for('students_bulk_upload') }}" enctype="multipart/form-data" style="margin-top:1rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>CSV File</label>
         <input type="file" name="csv_file" accept=".csv" required>
         <button class="btn" type="submit">Upload &amp; Import</button>
@@ -27,6 +28,7 @@
 <div class="card">
     <h3>Add a Student</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="grid-2">
             <div>
                 <label>Admission No. / Register No. (unique within this class)</label>
@@ -90,6 +92,7 @@
                 <a class="btn btn-small" href="{{ url_for('student_profile', student_id=s.id) }}">View</a>
                 <form method="POST" action="{{ url_for('delete_student', student_id=s.id) }}" class="inline"
                       onsubmit="return confirm('Delete {{ student_full_name(s) }} and all their scores/records? This cannot be undone.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
                 </form>
             </td>

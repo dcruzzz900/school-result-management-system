@@ -6,6 +6,7 @@
 <div class="card">
     <h3>Add a Class</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Class name (e.g. JSS1A, SS1 Science A)</label>
         <input type="text" name="name" required>
         <label>Category (optional — for SS Science/Arts/Commercial arms)</label>
@@ -26,6 +27,7 @@
             <td>{{ c.name }}</td>
             <td>
                 <form method="POST" action="{{ url_for('set_class_category', class_id=c.id) }}" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <select name="category" style="width:auto; display:inline-block;" onchange="this.form.submit()">
                         <option value="">-- none --</option>
                         {% for cat in categories %}
@@ -37,6 +39,7 @@
             <td>{{ c.teacher_name or '—' }}</td>
             <td>
                 <form method="POST" action="{{ url_for('set_form_teacher', class_id=c.id) }}" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <select name="teacher_id" style="width:auto; display:inline-block;" onchange="this.form.submit()">
                         <option value="">-- none --</option>
                         {% for t in teachers %}
@@ -48,6 +51,7 @@
             <td>
                 <form method="POST" action="{{ url_for('delete_class', class_id=c.id) }}"
                       onsubmit="return confirm('Delete class {{ c.name }}? This only works if it has no students in it.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
                 </form>
             </td>

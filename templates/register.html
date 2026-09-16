@@ -8,6 +8,7 @@
             You'll need the staff signup code from your school's admin to create an account.
         </p>
         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>Your School</label>
             <select name="school_id" required>
                 <option value="" disabled selected>-- choose your school --</option>

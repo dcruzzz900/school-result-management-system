@@ -34,7 +34,7 @@
         <tr><th>Date</th><th>Present</th><th>Absent</th><th></th></tr>
         {% for d in dates %}
         <tr>
-            <td>{{ d.date }}</td>
+            <td>{{ d.date|dmy }}</td>
             <td>{{ d.present }}</td>
             <td>{{ d.absent }}</td>
             <td><a class="btn btn-small" href="{{ url_for('roll_call', class_id=class_row.id, date=d.date) }}">Review / Edit</a></td>

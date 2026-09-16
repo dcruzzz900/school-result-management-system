@@ -25,6 +25,7 @@
     <p style="color:#999;">No active students in this class yet.</p>
     {% else %}
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="date" value="{{ date_str }}">
         <table>
             <tr><th>Admission No.</th><th>Student</th><th>Present</th><th>Absent</th></tr>
@@ -42,7 +43,7 @@
             </tr>
             {% endfor %}
         </table>
-        <button class="btn" type="submit" style="margin-top:1rem;">Save Roll Call for {{ date_str }}</button>
+        <button class="btn" type="submit" style="margin-top:1rem;">Save Roll Call for {{ date_str|dmy }}</button>
     </form>
     {% endif %}
 </div>

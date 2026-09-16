@@ -6,6 +6,7 @@
 <div class="card">
     <h3>Add a Teacher</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Full Name</label>
         <input type="text" name="name" required>
         <label>Username</label>
@@ -33,6 +34,7 @@
             <td>{{ t.username }}</td>
             <td>
                 <form method="POST" action="{{ url_for('set_teacher_position', teacher_id=t.id) }}" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <select name="position" style="width:auto; display:inline-block;" onchange="this.form.submit()">
                         <option value="">-- not set --</option>
                         {% for value, display in position_choices %}
@@ -44,10 +46,12 @@
             <td style="white-space:nowrap;">
                 <form method="POST" action="{{ url_for('admin_reset_teacher_password', teacher_id=t.id) }}" class="inline"
                       onsubmit="return confirm('Reset the password for {{ t.name }}? A new temporary password will be shown here once.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" type="submit">Reset Password</button>
                 </form>
                 <form method="POST" action="{{ url_for('delete_teacher', teacher_id=t.id) }}" class="inline"
                       onsubmit="return confirm('Remove {{ t.name }}? Any classes/subjects they teach will become unassigned.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
                 </form>
             </td>

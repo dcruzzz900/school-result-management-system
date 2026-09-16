@@ -6,6 +6,7 @@
 
 <div class="card" style="max-width:520px;">
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Send To</label>
         <select name="target_role" required>
             <option value="all">Everyone (Staff &amp; Students)</option>

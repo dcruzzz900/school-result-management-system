@@ -13,6 +13,7 @@
         <img src="{{ url_for('school_logo') }}" alt="Current logo" style="max-height:120px; margin-bottom:1rem; display:block;">
         <form method="POST" action="{{ url_for('remove_school_logo') }}"
               onsubmit="return confirm('Remove the current logo?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-small" style="background:#b3261e;" type="submit">Remove Logo</button>
         </form>
     {% else %}
@@ -23,6 +24,7 @@
 <div class="card" style="max-width:520px;">
     <h3>Update School Name &amp; Logo</h3>
     <form method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>School Name</label>
         <input type="text" name="school_name" value="{{ settings.name if settings else '' }}" required>
 
@@ -77,6 +79,7 @@
     <p style="font-size:0.9rem; color:#999;">Self-registration is currently off.</p>
     {% endif %}
     <form method="POST" action="{{ url_for('set_staff_signup_code') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Staff Signup Code</label>
         <input type="text" name="staff_signup_code" value="{{ settings.staff_signup_code or '' }}" placeholder="e.g. GSS2026">
         <button class="btn" type="submit">Save Code</button>

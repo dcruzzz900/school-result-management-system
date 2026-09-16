@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Staff Attendance{% endblock %}
+{% block content %}
+<h1>Staff Attendance</h1>
+<p style="color:#666; font-size:0.9rem;">
+    Mark each staff member's status for the day. Everyone defaults to Present.
+</p>
+
+<div class="card">
+    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem;">
+        <a class="btn btn-small" href="{{ url_for('staff_attendance', date=prev_day) }}">&larr; Previous Day</a>
+        <form method="GET" style="display:flex; align-items:center; gap:0.5rem;">
+            <input type="date" name="date" value="{{ date_str }}" onchange="this.form.submit()" max="{{ today }}">
+        </form>
+        <a class="btn btn-small" href="{{ url_for('staff_attendance', date=next_day) }}">Next Day &rarr;</a>
+        {% if date_str != today %}
+        <a class="btn btn-small" href="{{ url_for('staff_attendance', date=today) }}">Jump to Today</a>
+        {% endif %}
+        <a class="btn btn-small" style="margin-left:auto;" href="{{ url_for('staff_attendance_history') }}">View History &amp; Reports</a>
+    </div>
+
+    {% if not staff %}
+    <p style="color:#999;">No staff members found.</p>
+    {% else %}
+    <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="date" value="{{ date_str }}">
+        <table>
+            <tr>
+                <th>Name</th><th>Role</th>
+                {% for st in statuses %}<th>{{ st }}</th>{% endfor %}
+            </tr>
+            {% for m in staff %}
+            {% set current = existing.get(m.id, 'Present') %}
+            <tr>
+                <td>{{ m.name }}</td>
+                <td>{{ position_labels.get(m.position, m.role.replace('_',' ')|title) }}</td>
+                {% for st in statuses %}
+                <td><input type="radio" name="status_{{ m.id }}" value="{{ st }}" {% if current == st %}checked{% endif %}></td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </table>
+        <button class="btn" type="submit" style="margin-top:1rem;">Save Attendance for {{ date_str|dmy }}</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Learning Materials{% endblock %}
+{% block content %}
+<h1>Learning Materials</h1>
+
+{% if not accessible_classes %}
+<div class="card"><p style="color:#999;">You don't have any classes assigned yet.</p></div>
+{% else %}
+<div class="card">
+    <form method="GET" style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:flex-end;">
+        <div>
+            <label>Session</label>
+            <select name="session_id" onchange="this.form.submit()">
+                {% for s in all_sessions %}
+                <option value="{{ s.id }}" {% if s.id == session_id %}selected{% endif %}>{{ s.name }}{% if s.is_active %} (active){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Class</label>
+            <select name="class_id" onchange="this.form.submit()">
+                {% for c in accessible_classes %}
+                <option value="{{ c.id }}" {% if c.id == class_id %}selected{% endif %}>{{ c.name }}{% if c.category %} ({{ c.category }}){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Subject</label>
+            <select name="subject_id" onchange="this.form.submit()">
+                <option value="">-- all subjects --</option>
+                {% for s in subjects %}
+                <option value="{{ s.id }}" {% if s.id == selected_subject_id %}selected{% endif %}>{{ s.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </form>
+</div>
+
+{% if can_upload %}
+<div class="card">
+    <h3>Upload Material</h3>
+    <form method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="session_id" value="{{ session_id }}">
+        <label>Class</label>
+        <select name="class_id" required>
+            {% for c in accessible_classes %}
+            <option value="{{ c.id }}" {% if c.id == class_id %}selected{% endif %}>{{ c.name }}{% if c.category %} ({{ c.category }}){% endif %}</option>
+            {% endfor %}
+        </select>
+        <label>Subject</label>
+        <select name="subject_id" required>
+            {% for s in subjects %}
+            <option value="{{ s.id }}">{{ s.name }}</option>
+            {% endfor %}
+        </select>
+        <label>Title</label>
+        <input type="text" name="title" required placeholder="e.g. Week 3 Notes — Algebra">
+        <label>Type</label>
+        <select name="kind">
+            {% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
+        </select>
+        <label>File (PDF, Word, PowerPoint or image)</label>
+        <input type="file" name="file">
+        <label>...or a link (e.g. a YouTube video) instead of a file</label>
+        <input type="url" name="external_url" placeholder="https://...">
+        <button class="btn" type="submit" style="margin-top:0.5rem;">Upload</button>
+    </form>
+    <p style="font-size:0.8rem; color:#999; margin-top:0.5rem;">
+        Uploads are limited to 20MB. For videos, paste a link instead of uploading the file.
+    </p>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Materials{% if class_id %} — {{ accessible_classes|selectattr('id','equalto',class_id)|map(attribute='name')|first }}{% endif %}</h3>
+    {% if not items %}
+    <p style="color:#999;">No materials here yet.</p>
+    {% else %}
+    <table>
+        <tr><th>Title</th><th>Subject</th><th>Type</th><th>Uploaded</th><th></th></tr>
+        {% for m in items %}
+        <tr>
+            <td>{{ m.title }}</td>
+            <td>{{ m.subject_name }}</td>
+            <td>{{ m.kind }}</td>
+            <td>{{ m.uploaded_at|dmy }}{% if m.uploaded_by_name %} by {{ m.uploaded_by_name }}{% endif %}</td>
+            <td>
+                <a class="btn btn-small" href="{{ url_for('download_material', material_id=m.id) }}">
+                    {% if m.external_url %}Open Link{% else %}Download{% endif %}
+                </a>
+                {% if can_upload %}
+                <form method="POST" action="{{ url_for('delete_material', material_id=m.id) }}" class="inline"
+                      onsubmit="return confirm('Remove this material?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

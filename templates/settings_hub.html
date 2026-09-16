@@ -26,6 +26,7 @@
     </p>
     <form method="POST" action="{{ url_for('reset_demo_data') }}"
           onsubmit="return confirm('This permanently deletes all classes, subjects, students, teachers and their scores. Continue?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Type RESET to confirm</label>
         <input type="text" name="confirm_text" placeholder="RESET" required style="max-width:200px;">
         <button class="btn btn-gold" style="margin-top:0.75rem;" type="submit">Clear Demo Data</button>
@@ -48,6 +49,7 @@
     </p>
     <form method="POST" action="{{ url_for('delete_account') }}"
           onsubmit="return confirm('This will PERMANENTLY delete your entire school account and all its data. This cannot be undone. Are you absolutely sure?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Your Password</label>
         <input type="password" name="password" required>
         <label>Type DELETE to confirm</label>

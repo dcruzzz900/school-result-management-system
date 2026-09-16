@@ -26,6 +26,7 @@
             <td>
                 <form method="POST" action="{{ url_for('platform_reset_user_password', user_id=u.id) }}"
                       onsubmit="return confirm('Reset the password for {{ u.name }}?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" type="submit">Reset Password</button>
                 </form>
             </td>

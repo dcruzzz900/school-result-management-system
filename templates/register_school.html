@@ -8,6 +8,7 @@
             This creates a brand-new, independent school on this system, along with your own admin account.
         </p>
         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>School Name</label>
             <input type="text" name="school_name" required>
 

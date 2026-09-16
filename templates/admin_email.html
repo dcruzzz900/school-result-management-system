@@ -15,6 +15,7 @@
 <div class="card" style="max-width:520px;">
     <h3>SMTP Configuration</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="save">
         <label>SMTP Host</label>
         <input type="text" name="smtp_host" value="{{ settings.smtp_host or '' }}" placeholder="e.g. smtp.sendgrid.net">
@@ -47,6 +48,7 @@
     <h3>Send a Test Email</h3>
     <p style="font-size:0.9rem; color:#666;">Save your settings above first, then send yourself a test to confirm it works.</p>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="test">
         <label>Send test email to</label>
         <input type="email" name="test_email" required placeholder="you@example.com">

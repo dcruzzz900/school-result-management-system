@@ -6,6 +6,7 @@
 <div class="card">
     <h3>Score Weighting</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="grid-2">
             <div>
                 <label>CA1 Max</label>
@@ -28,6 +29,7 @@
     {% for g in scale %}
     <div class="grade-scale-row">
         <form method="POST" action="{{ url_for('edit_grade_scale', scale_id=g.id) }}" class="grade-scale-editform">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="text" name="grade" value="{{ g.grade }}" style="width:3.5rem;" required>
             <input type="number" step="0.01" name="min_score" value="{{ g.min_score }}" style="width:5rem;" required>
             <input type="number" step="0.01" name="max_score" value="{{ g.max_score }}" style="width:5rem;" required>
@@ -36,6 +38,7 @@
         </form>
         <form method="POST" action="{{ url_for('delete_grade_scale', scale_id=g.id) }}"
               onsubmit="return confirm('Delete the {{ g.grade }} grade band?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
         </form>
     </div>
@@ -45,6 +48,7 @@
 <div class="card">
     <h3>Add a Grade Band</h3>
     <form method="POST" action="{{ url_for('add_grade_scale') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="grid-2">
             <div>
                 <label>Grade (e.g. A)</label>

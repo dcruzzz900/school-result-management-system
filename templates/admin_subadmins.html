@@ -12,6 +12,7 @@
 <div class="card">
     <h3>Add a Sub-Admin</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Full Name</label>
         <input type="text" name="name" required>
         <label>Username</label>
@@ -34,10 +35,12 @@
             <td style="white-space:nowrap;">
                 <form method="POST" action="{{ url_for('reset_subadmin_password', user_id=s.id) }}" class="inline"
                       onsubmit="return confirm('Reset the password for {{ s.name }}?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" type="submit">Reset Password</button>
                 </form>
                 <form method="POST" action="{{ url_for('delete_subadmin', user_id=s.id) }}" class="inline"
                       onsubmit="return confirm('Remove Sub-Admin {{ s.name }}?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" style="background:#b3261e;" type="submit">Remove</button>
                 </form>
             </td>

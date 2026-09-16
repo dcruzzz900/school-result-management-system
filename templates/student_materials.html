@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Learning Materials{% endblock %}
+{% block content %}
+<h1>Learning Materials</h1>
+
+{% if not enrolled_sessions %}
+<div class="card"><p style="color:#999;">No materials are available yet.</p></div>
+{% else %}
+<div class="card">
+    <form method="GET">
+        <label>Session</label>
+        <select name="session_id" onchange="this.form.submit()">
+            {% for s in enrolled_sessions %}
+            <option value="{{ s.id }}" {% if s.id == session_id %}selected{% endif %}>{{ s.name }}{% if s.is_active %} (active){% endif %}</option>
+            {% endfor %}
+        </select>
+    </form>
+    {% if class_row %}
+    <p style="color:#666; font-size:0.9rem; margin-top:0.5rem;">
+        Showing materials for {{ class_row.name }}{% if class_row.category %} ({{ class_row.category }}){% endif %}.
+    </p>
+    {% endif %}
+</div>
+
+{% if not items %}
+<div class="card"><p style="color:#999;">No materials have been posted for this session yet.</p></div>
+{% else %}
+{% for subj in subjects %}
+{% set subj_items = items|selectattr('subject_id', 'equalto', subj.id)|list %}
+{% if subj_items %}
+<div class="card">
+    <h3>{{ subj.name }}</h3>
+    <table>
+        <tr><th>Title</th><th>Type</th><th></th></tr>
+        {% for m in subj_items %}
+        <tr>
+            <td>{{ m.title }}</td>
+            <td>{{ m.kind }}</td>
+            <td>
+                <a class="btn btn-small" href="{{ url_for('student_download_material', material_id=m.id) }}">
+                    {% if m.external_url %}Open Link{% else %}Download{% endif %}
+                </a>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% endblock %}

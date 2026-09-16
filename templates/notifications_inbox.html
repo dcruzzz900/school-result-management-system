@@ -14,7 +14,7 @@
     <div style="padding:0.75rem 0; border-bottom:1px solid var(--border);">
         <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <h3 style="margin:0;">{{ n.title }}</h3>
-            <span style="font-size:0.8rem; color:#999;">{{ n.created_at }}</span>
+            <span style="font-size:0.8rem; color:#999;">{{ n.created_at|dmy }}</span>
         </div>
         <p style="margin:0.3rem 0; white-space:pre-wrap;">{{ n.message }}</p>
         <p style="font-size:0.8rem; color:#999; margin:0;">

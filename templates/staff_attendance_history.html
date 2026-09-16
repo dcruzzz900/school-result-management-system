@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Staff Attendance History{% endblock %}
+{% block content %}
+<h1>Staff Attendance History</h1>
+
+<div class="card">
+    <form method="GET" style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+        <div>
+            <label>From</label>
+            <input type="date" name="start" value="{{ start }}">
+        </div>
+        <div>
+            <label>To</label>
+            <input type="date" name="end" value="{{ end }}">
+        </div>
+        <button class="btn" type="submit">Update</button>
+    </form>
+    <p style="color:#666; font-size:0.85rem; margin-top:0.5rem;">
+        Showing {{ start|dmy }} to {{ end|dmy }}.
+    </p>
+    <div style="margin-top:0.5rem;">
+        <a class="btn btn-small" href="{{ url_for('report_staff_attendance', format='csv', start=start, end=end) }}">⬇ CSV</a>
+        <a class="btn btn-small" href="{{ url_for('report_staff_attendance', format='xlsx', start=start, end=end) }}">⬇ Excel</a>
+        <a class="btn btn-small" href="{{ url_for('report_staff_attendance', format='pdf', start=start, end=end) }}">⬇ PDF</a>
+        <a class="btn btn-small" href="{{ url_for('staff_attendance') }}">&larr; Back to Today's Attendance</a>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Per-Staff Summary</h3>
+    {% if not summaries %}
+    <p style="color:#999;">No staff members found.</p>
+    {% else %}
+    <table>
+        <tr><th>Name</th><th>Role</th><th>Present</th><th>Absent</th><th>Late</th><th>Leave</th><th>Days Recorded</th></tr>
+        {% for row in summaries %}
+        <tr>
+            <td>{{ row.staff.name }}</td>
+            <td>{{ position_labels.get(row.staff.position, row.staff.role.replace('_',' ')|title) }}</td>
+            <td>{{ row.counts['Present'] }}</td>
+            <td>{{ row.counts['Absent'] }}</td>
+            <td>{{ row.counts['Late'] }}</td>
+            <td>{{ row.counts['Leave'] }}</td>
+            <td>{{ row.total }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3>Days Recorded</h3>
+    {% if not days %}
+    <p style="color:#999;">No attendance has been recorded in this range yet.</p>
+    {% else %}
+    <table>
+        <tr><th>Date</th><th>Present</th><th>Absent</th><th>Late</th><th>Leave</th><th></th></tr>
+        {% for d in days %}
+        <tr>
+            <td>{{ d.date|dmy }}</td>
+            <td>{{ d.present }}</td>
+            <td>{{ d.absent }}</td>
+            <td>{{ d.late }}</td>
+            <td>{{ d.leave_count }}</td>
+            <td><a class="btn btn-small" href="{{ url_for('staff_attendance', date=d.date) }}">Review / Edit</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+</div>
+{% endblock %}

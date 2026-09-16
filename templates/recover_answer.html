@@ -6,6 +6,7 @@
         <h2>Answer Your Security Question</h2>
         <p style="color:#666; font-size:0.9rem;">{{ question }}</p>
         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>Your Answer</label>
             <input type="text" name="security_answer" required autofocus>
             <button class="btn" type="submit" style="width:100%;">Verify</button>

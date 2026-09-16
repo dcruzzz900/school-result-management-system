@@ -11,6 +11,7 @@
         terms operate completely independently, as before.
     </p>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="toggle_cumulative">
         <label style="font-weight:normal; display:flex; align-items:center; gap:0.4rem;">
             <input type="checkbox" name="cumulative_enabled" style="width:auto;"
@@ -25,6 +26,7 @@
     <div class="card">
         <h3>New Session</h3>
         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="new_session">
             <label>Session name (e.g. 2026/2027)</label>
             <input type="text" name="session_name" required>
@@ -34,6 +36,7 @@
     <div class="card">
         <h3>New Term</h3>
         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="new_term">
             <label>Session</label>
             <select name="session_id" required>
@@ -61,6 +64,7 @@
             <td>
                 {% if not s.is_active %}
                 <form method="POST" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="activate_session">
                     <input type="hidden" name="session_id" value="{{ s.id }}">
                     <button class="btn btn-small" type="submit">Activate</button>
@@ -89,6 +93,7 @@
             <td style="white-space:nowrap;">
                 {% if not t.is_active %}
                 <form method="POST" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="activate_term">
                     <input type="hidden" name="term_id" value="{{ t.id }}">
                     <button class="btn btn-small" type="submit">Activate</button>
@@ -96,12 +101,14 @@
                 {% endif %}
                 {% if t.is_published %}
                 <form method="POST" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="unpublish_term">
                     <input type="hidden" name="term_id" value="{{ t.id }}">
                     <button class="btn btn-small" type="submit">Unpublish</button>
                 </form>
                 {% else %}
                 <form method="POST" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="publish_term">
                     <input type="hidden" name="term_id" value="{{ t.id }}">
                     <button class="btn btn-small btn-gold" type="submit">Publish Results</button>

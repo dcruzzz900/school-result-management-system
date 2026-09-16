@@ -28,6 +28,7 @@
     <span style="font-size:0.85rem; color:#999;">Results for this term aren't published yet — emailing is disabled until an admin publishes them (Setup → Terms).</span>
     {% elif student.parent_email %}
     <form method="POST" action="{{ url_for('email_result', student_id=student.id) }}" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn" type="submit">✉ Email to Parent</button>
     </form>
     {% else %}
@@ -42,7 +43,7 @@
             <p><b>Admission No. / Register No.:</b> {{ student.admission_no }}</p>
             <p><b>Class / Arm:</b> {{ class_row.name }}</p>
             {% if class_row.category %}<p><b>Category:</b> {{ class_row.category }}</p>{% endif %}
-            <p><b>Date of Birth:</b> {{ student.date_of_birth or '—' }}</p>
+            <p><b>Date of Birth:</b> {{ student.date_of_birth|dmy if student.date_of_birth else '—' }}</p>
         </div>
         <div>
             <p><b>Total Score:</b> {{ total }}</p>
@@ -90,7 +91,7 @@
     </p>
     <p class="signature-line">
         <span>Teacher's Signature: __________________</span>
-        <span>Date: {{ info.teacher_signed_date if info and info.teacher_signed_date else '__________________' }}</span>
+        <span>Date: {{ info.teacher_signed_date|dmy if info and info.teacher_signed_date else '__________________' }}</span>
     </p>
 
     <p><b>Principal's Comment:</b><br>
@@ -99,13 +100,14 @@
     </p>
     <p class="signature-line">
         <span>Principal's Signature: __________________</span>
-        <span>Date: {{ info.principal_signed_date if info and info.principal_signed_date else '__________________' }}</span>
+        <span>Date: {{ info.principal_signed_date|dmy if info and info.principal_signed_date else '__________________' }}</span>
     </p>
 </div>
 
 <div class="card no-print">
     <h3>Update Attendance, Comments &amp; Skill Ratings</h3>
     <form method="POST" action="{{ url_for('result_extra', student_id=student.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="term_id" value="{{ term.id }}">
         <div class="grid-2">
             <div>

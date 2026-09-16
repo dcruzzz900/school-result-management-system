@@ -30,6 +30,7 @@
 <div class="card">
     <h3>Step 2: Choose Destination &amp; Students</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="from_class_id" value="{{ from_class_id }}">
         <label>To Existing Class / Arm</label>
         <select name="to_class_id">

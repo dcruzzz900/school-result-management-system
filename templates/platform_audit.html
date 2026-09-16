@@ -10,7 +10,7 @@
         <tr><th>When</th><th>Actor</th><th>School</th><th>Action</th><th>Details</th></tr>
         {% for log in logs %}
         <tr>
-            <td style="font-size:0.85rem;">{{ log.created_at }}</td>
+            <td style="font-size:0.85rem;">{{ log.created_at|dmy }}</td>
             <td>{{ log.actor_name or '—' }} ({{ log.actor_type }})</td>
             <td>{{ log.school_name or '—' }}</td>
             <td>{{ log.action }}</td>

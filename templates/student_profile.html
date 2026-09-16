@@ -10,7 +10,7 @@
             <p><b>Admission No. / Register No.:</b> {{ student.admission_no }}</p>
             <p><b>Class / Arm:</b> {{ class_row.name }}</p>
             <p><b>Gender:</b> {{ student.gender or '—' }}</p>
-            <p><b>Date of Birth:</b> {{ student.date_of_birth or '—' }}</p>
+            <p><b>Date of Birth:</b> {{ student.date_of_birth|dmy if student.date_of_birth else '—' }}</p>
             <p><b>Religion:</b> {{ student.religion or '—' }}</p>
         </div>
         <div>
@@ -43,6 +43,7 @@
         been published (Setup → Terms).
     </p>
     <form method="POST" action="{{ url_for('set_student_login', student_id=student.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Username</label>
         <input type="text" name="username" value="{{ student.username or '' }}" required>
         <label>Password {% if student.username %}(leave blank to keep the current one){% endif %}</label>
@@ -52,6 +53,7 @@
     {% if student.username %}
     <form method="POST" action="{{ url_for('remove_student_login', student_id=student.id) }}" style="margin-top:0.75rem;"
           onsubmit="return confirm('Remove this student\'s login? They will no longer be able to sign in.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-small" style="background:#b3261e;" type="submit">Remove Login</button>
     </form>
     {% endif %}

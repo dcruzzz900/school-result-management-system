@@ -5,6 +5,7 @@
     <div class="card">
         <h2>Set a New Password</h2>
         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>New Password</label>
             <input type="password" name="new_password" required minlength="6" autofocus>
             <label>Confirm New Password</label>

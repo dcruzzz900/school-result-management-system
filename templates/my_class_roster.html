@@ -20,6 +20,7 @@
     </p>
     <a class="btn btn-small" href="{{ url_for('my_class_csv_template', class_id=class_row.id) }}">Download Class Register CSV</a>
     <form method="POST" action="{{ url_for('my_class_csv_upload', class_id=class_row.id) }}" enctype="multipart/form-data" style="margin-top:1rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Upload Completed CSV</label>
         <input type="file" name="csv_file" accept=".csv" required>
         <button class="btn" type="submit">Upload &amp; Save</button>
@@ -29,6 +30,7 @@
 <div class="card">
     <h3>Add a Student</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="grid-2">
             <div>
                 <label>Admission No. / Register No. (as in your class register)</label>
@@ -83,6 +85,7 @@
             <td colspan="4">
                 <form method="POST" action="{{ url_for('my_class_edit_student', class_id=class_row.id, student_id=s.id) }}"
                       style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; padding:0.5rem 0;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div><label>Adm./Reg. No.</label><input type="text" name="admission_no" value="{{ s.admission_no }}" style="width:7rem;" required></div>
                     <div><label>First Name</label><input type="text" name="first_name" value="{{ s.first_name }}" required></div>
                     <div><label>Last Name</label><input type="text" name="last_name" value="{{ s.last_name }}" required></div>

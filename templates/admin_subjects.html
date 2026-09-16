@@ -6,6 +6,7 @@
 <div class="card">
     <h3>Add a Subject</h3>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Subject name (e.g. Mathematics)</label>
         <input type="text" name="name" required>
         <button class="btn" type="submit">Add Subject</button>
@@ -22,6 +23,7 @@
             <td>
                 <form method="POST" action="{{ url_for('delete_subject', subject_id=s.id) }}"
                       onsubmit="return confirm('Delete subject {{ s.name }}? This only works if it is not assigned to any class.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" style="background:#b3261e;" type="submit">Delete</button>
                 </form>
             </td>
