@@ -280,6 +280,45 @@ CREATE TABLE IF NOT EXISTS attendance_records (
 CREATE INDEX IF NOT EXISTS idx_attendance_class_term_date
     ON attendance_records(class_id, term_id, date);
 
+CREATE TABLE IF NOT EXISTS materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    school_id INTEGER NOT NULL,
+    session_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    subject_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'Notes',
+    filename TEXT,
+    original_filename TEXT,
+    external_url TEXT,
+    uploaded_by INTEGER,
+    uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(school_id) REFERENCES schools(id),
+    FOREIGN KEY(session_id) REFERENCES sessions(id),
+    FOREIGN KEY(class_id) REFERENCES classes(id),
+    FOREIGN KEY(subject_id) REFERENCES subjects(id),
+    FOREIGN KEY(uploaded_by) REFERENCES users(id),
+    CHECK (filename IS NOT NULL OR external_url IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_materials_class_subject ON materials(class_id, subject_id);
+
+CREATE TABLE IF NOT EXISTS staff_attendance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    school_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('Present','Absent','Late','Leave')),
+    recorded_by INTEGER,
+    recorded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(school_id) REFERENCES schools(id),
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(recorded_by) REFERENCES users(id),
+    UNIQUE(user_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_staff_attendance_school_date ON staff_attendance(school_id, date);
+
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
 );

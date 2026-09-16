@@ -1,9 +1,34 @@
 import sqlite3
 import os
+import datetime as _dt
 from werkzeug.security import generate_password_hash
 
 INSTANCE_DIR = os.path.join(os.path.dirname(__file__), "instance")
 DB_PATH = os.path.join(INSTANCE_DIR, "school.db")
+
+
+def format_dmy(value):
+    """Formats an ISO date ('YYYY-MM-DD') or a SQLite timestamp
+    ('YYYY-MM-DD HH:MM:SS') as DD/MM/YYYY, with HH:MM appended for
+    timestamps — the date format required throughout the system. Anything
+    that isn't one of those two shapes (blank, already-formatted, or
+    unexpected) is returned exactly as given rather than guessed at."""
+    if not value:
+        return value
+    s = str(value).strip()
+    date_part, _, time_part = s.partition(" ")
+    try:
+        d = _dt.date.fromisoformat(date_part)
+    except ValueError:
+        return value
+    formatted = d.strftime("%d/%m/%Y")
+    if time_part:
+        try:
+            t = _dt.datetime.strptime(time_part[:8], "%H:%M:%S").time()
+            formatted += f" {t.strftime('%H:%M')}"
+        except ValueError:
+            pass
+    return formatted
 
 
 def get_db():
@@ -364,6 +389,62 @@ def migration_017_class_category(conn):
     ensure_column(conn, "classes", "category", "TEXT")
 
 
+def migration_018_learning_materials(conn):
+    """Learning Materials module: a material is uploaded (or linked, for
+    things like a YouTube video) against one specific session + class +
+    subject. Since a class already carries its own arm and Science/Arts/
+    Commercial category, scoping by class_id automatically scopes by
+    arm/category too — a student only ever sees materials for their own
+    class, so Science/Arts/Commercial students naturally only see their
+    own materials without any extra filtering logic."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS materials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            session_id INTEGER NOT NULL,
+            class_id INTEGER NOT NULL,
+            subject_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'Notes',
+            filename TEXT,
+            original_filename TEXT,
+            external_url TEXT,
+            uploaded_by INTEGER,
+            uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(school_id) REFERENCES schools(id),
+            FOREIGN KEY(session_id) REFERENCES sessions(id),
+            FOREIGN KEY(class_id) REFERENCES classes(id),
+            FOREIGN KEY(subject_id) REFERENCES subjects(id),
+            FOREIGN KEY(uploaded_by) REFERENCES users(id),
+            CHECK (filename IS NOT NULL OR external_url IS NOT NULL)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_materials_class_subject ON materials(class_id, subject_id)")
+
+
+def migration_019_staff_attendance(conn):
+    """Staff Attendance: Present/Absent/Late/Leave per staff member per
+    day, recorded by an admin/sub_admin. Separate from the student roll
+    call — staff aren't tied to a single class, so this is scoped to the
+    whole school rather than one Form Teacher's classroom."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS staff_attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('Present','Absent','Late','Leave')),
+            recorded_by INTEGER,
+            recorded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(school_id) REFERENCES schools(id),
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(recorded_by) REFERENCES users(id),
+            UNIQUE(user_id, date)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_staff_attendance_school_date ON staff_attendance(school_id, date)")
+
+
 MIGRATIONS = [
     migration_001_baseline,
     migration_002_multi_school,
@@ -382,6 +463,8 @@ MIGRATIONS = [
     migration_015_auto_comments,
     migration_016_cumulative_results,
     migration_017_class_category,
+    migration_018_learning_materials,
+    migration_019_staff_attendance,
 ]
 
 
@@ -517,6 +600,8 @@ def grade_for(score, conn, school_id):
 
 
 CLASS_CATEGORIES = ["Science", "Arts", "Commercial"]
+MATERIAL_KINDS = ["Notes", "Assignment", "Study Guide", "Other"]
+STAFF_ATTENDANCE_STATUSES = ["Present", "Absent", "Late", "Leave"]
 
 
 def get_school(conn, school_id):

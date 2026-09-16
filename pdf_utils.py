@@ -1,5 +1,6 @@
 import io
 import os
+from db import format_dmy
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -167,7 +168,7 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
     teacher_comment = info["teacher_comment"] if info and info["teacher_comment"] else "_" * 70
     elements.append(Paragraph(f"<b>Teacher's Comment:</b> {teacher_comment}", normal))
     elements.append(Spacer(1, 0.3 * cm))
-    teacher_date = info["teacher_signed_date"] if info and info["teacher_signed_date"] else "________________"
+    teacher_date = format_dmy(info["teacher_signed_date"]) if info and info["teacher_signed_date"] else "________________"
     elements.append(Paragraph(
         f"Teacher's Signature: ________________________________&nbsp;&nbsp;&nbsp;&nbsp; Date: {teacher_date}",
         normal,
@@ -177,7 +178,7 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
     principal_comment = info["principal_comment"] if info and info["principal_comment"] else "_" * 70
     elements.append(Paragraph(f"<b>Principal's Comment:</b> {principal_comment}", normal))
     elements.append(Spacer(1, 0.3 * cm))
-    principal_date = info["principal_signed_date"] if info and info["principal_signed_date"] else "________________"
+    principal_date = format_dmy(info["principal_signed_date"]) if info and info["principal_signed_date"] else "________________"
     elements.append(Paragraph(
         f"Principal's Signature: ________________________________&nbsp;&nbsp;&nbsp;&nbsp; Date: {principal_date}",
         normal,
@@ -271,6 +272,30 @@ def build_cumulative_result_pdf(data, session, school_name=None, logo_path=None,
         "recorded for that subject.", styles["Normal"],
     ))
 
+    doc.build(elements)
+    buf.seek(0)
+    return buf
+
+
+def build_generic_table_pdf(title, subtitle, headers, rows, school_name=None, logo_path=None):
+    """A plain landscape table report (headers + rows) with the school's
+    letterhead — used for reports that aren't a results document, like the
+    Staff Attendance export."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), topMargin=1 * cm, bottomMargin=1 * cm)
+    styles = getSampleStyleSheet()
+    elements = _header_elements(school_name, logo_path, title, subtitle, styles)
+
+    data = [headers] + [[str(c) for c in row] for row in rows]
+    table = Table(data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f3a5f")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f2f2")]),
+    ]))
+    elements.append(table)
     doc.build(elements)
     buf.seek(0)
     return buf

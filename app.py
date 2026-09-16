@@ -3,12 +3,17 @@ from flask import (
     send_file, send_from_directory,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from functools import wraps
 import os
 import sqlite3
 import io
 import csv as csv_module
 import secrets
+import time
+import threading
+from collections import defaultdict, deque
 
 from db import (
     get_db, init_db, grade_for, get_school, INSTANCE_DIR,
@@ -18,17 +23,33 @@ from db import (
     get_visible_notifications, get_unread_notification_count,
     recompute_attendance, attendance_percentage,
     generate_teacher_comment, generate_principal_comment,
-    CLASS_CATEGORIES,
+    CLASS_CATEGORIES, MATERIAL_KINDS, format_dmy, STAFF_ATTENDANCE_STATUSES,
 )
 import datetime
-from pdf_utils import build_broadsheet_pdf, build_result_pdf, build_class_results_pdf, build_cumulative_result_pdf
+from pdf_utils import build_broadsheet_pdf, build_result_pdf, build_class_results_pdf, build_cumulative_result_pdf, build_generic_table_pdf
 from email_utils import send_email
 from reports import build_csv, build_xlsx
 
 ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
+# Learning Materials: extension -> the broad type shown to teachers/students.
+# Anything not in this map (e.g. a full video file) should be linked via
+# external_url instead of uploaded — see MATERIALS_DIR below.
+MATERIAL_EXTENSIONS = {
+    "pdf": "PDF", "doc": "Word", "docx": "Word", "ppt": "PowerPoint", "pptx": "PowerPoint",
+    "jpg": "Image", "jpeg": "Image", "png": "Image", "gif": "Image",
+}
+MATERIALS_DIR = os.path.join(INSTANCE_DIR, "materials")
+
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024  # 3MB upload limit (logo/CSV uploads)
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20MB upload limit (logo/CSV/materials)
+
+# Trust one reverse-proxy hop for the real client IP (X-Forwarded-For),
+# since PythonAnywhere — and most hosts — put the app behind a proxy.
+# Without this, every visitor would appear to share the proxy's own IP,
+# which would make the rate limiter below block everyone at once instead
+# of just whoever is actually hammering a route.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
 
 def _get_or_create_secret_key():
@@ -47,6 +68,88 @@ app.secret_key = os.environ.get("SECRET_KEY") or _get_or_create_secret_key()
 # directly (python app.py) or imported by a production server (e.g. the
 # WSGI file on PythonAnywhere, or gunicorn).
 init_db()
+
+
+# ---------- CSRF protection ----------
+# Every form in this app posts data with a browser session cookie, which is
+# exactly what CSRF exploits — a malicious page elsewhere can make the
+# browser submit a form to us using the person's own logged-in cookie. A
+# random per-session token, embedded as a hidden field in every POST form
+# and checked against the session on every state-changing request, means a
+# request that didn't originate from a page we actually rendered is
+# rejected, since an attacker's page has no way to know that token.
+
+CSRF_UNSAFE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+
+
+def get_csrf_token():
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_hex(32)
+    return session["_csrf_token"]
+
+
+app.jinja_env.globals["csrf_token"] = get_csrf_token
+
+
+@app.before_request
+def _check_csrf():
+    if request.method not in CSRF_UNSAFE_METHODS:
+        return None
+    submitted = request.form.get("csrf_token", "")
+    expected = session.get("_csrf_token", "")
+    if not expected or not secrets.compare_digest(submitted, expected):
+        flash("Your session timed out or that page was open too long — please try again.", "error")
+        return redirect(request.referrer or "/")
+    return None
+
+
+app.jinja_env.filters["dmy"] = format_dmy
+
+
+# ---------- rate limiting ----------
+# In-memory sliding-window counter per (route, client IP). This is a
+# single-process store — fine for the size of deployment this app targets
+# (one PythonAnywhere web worker), but it resets if the process restarts
+# and isn't shared across multiple workers. That trade-off is consistent
+# with the rest of the app's approach (e.g. the secret key is a local
+# file, not an external service) — if this ever runs behind several
+# worker processes, this should move to a shared store like Redis instead.
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_store = defaultdict(deque)
+
+
+def _is_rate_limited(key, max_attempts, window_seconds):
+    now = time.time()
+    with _rate_limit_lock:
+        bucket = _rate_limit_store[key]
+        while bucket and now - bucket[0] > window_seconds:
+            bucket.popleft()
+        if len(bucket) >= max_attempts:
+            return True
+        bucket.append(now)
+        return False
+
+
+def rate_limit(max_attempts, window_seconds):
+    """Caps how many POSTs a single IP can make to the decorated route
+    within a trailing time window — every submission counts, not just
+    failed ones, so a script can't dodge the limit by mixing in the
+    occasional well-formed request. GET requests (just viewing the page)
+    are never limited. On rejection, redirects back to the same page with
+    a flash message rather than a bare error, so it fits the app's normal
+    error handling."""
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if request.method == "POST":
+                key = f"{request.endpoint}:{request.remote_addr}"
+                if _is_rate_limited(key, max_attempts, window_seconds):
+                    flash("Too many attempts from this connection. Please wait a few minutes and try again.", "error")
+                    return redirect(request.path)
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
 
 
 # ---------- helpers ----------
@@ -298,6 +401,7 @@ def index():
 
 
 @app.route("/login", methods=["GET", "POST"])
+@rate_limit(max_attempts=10, window_seconds=300)
 def login():
     if request.method == "POST":
         username = request.form["username"].strip()
@@ -373,6 +477,7 @@ POSITION_CHOICES = [
 
 
 @app.route("/register-school", methods=["GET", "POST"])
+@rate_limit(max_attempts=5, window_seconds=3600)
 def register_school():
     if request.method == "POST":
         school_name = request.form.get("school_name", "").strip()
@@ -432,6 +537,7 @@ def register_school():
 
 
 @app.route("/register", methods=["GET", "POST"])
+@rate_limit(max_attempts=5, window_seconds=3600)
 def register():
     conn = get_db()
     schools = conn.execute("SELECT id, name FROM schools ORDER BY name").fetchall()
@@ -497,6 +603,7 @@ def register():
 
 
 @app.route("/recover", methods=["GET", "POST"])
+@rate_limit(max_attempts=5, window_seconds=600)
 def recover():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -512,6 +619,7 @@ def recover():
 
 
 @app.route("/recover/answer", methods=["GET", "POST"])
+@rate_limit(max_attempts=5, window_seconds=600)
 def recover_answer():
     user_id = session.get("recovery_user_id")
     if not user_id:
@@ -536,6 +644,7 @@ def recover_answer():
 
 
 @app.route("/recover/reset", methods=["GET", "POST"])
+@rate_limit(max_attempts=5, window_seconds=600)
 def recover_reset():
     user_id = session.get("recovery_verified_user_id")
     if not user_id:
@@ -1830,7 +1939,7 @@ def roll_call(class_id):
             f"{class_row['name']} — {date_str}: {present_count} present, {absent_count} absent",
             school_id=current_school_id(),
         )
-        flash(f"Roll call saved for {date_str} — {present_count} present, {absent_count} absent.", "success")
+        flash(f"Roll call saved for {format_dmy(date_str)} — {present_count} present, {absent_count} absent.", "success")
         conn.close()
         return redirect(url_for("roll_call", class_id=class_id, date=date_str))
 
@@ -2967,6 +3076,320 @@ def classes_list():
     return render_template("classes_list.html", classes=classes, accessible=accessible)
 
 
+# ---------- learning materials ----------
+
+def _material_extension(filename):
+    return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+
+def _staff_accessible_classes(conn):
+    """Classes this staff member is allowed to see materials for — the
+    exact same rule already used for results/broadsheets, so a subject
+    teacher who isn't a Form Teacher sees the same classes here as
+    everywhere else in the app, no new permission surface."""
+    accessible = get_accessible_class_ids(conn, session.get("role"), session.get("position"), session["user_id"])
+    if accessible == "all":
+        return conn.execute("SELECT * FROM classes WHERE school_id=? ORDER BY name", (current_school_id(),)).fetchall()
+    if not accessible:
+        return []
+    placeholders = ",".join("?" * len(accessible))
+    return conn.execute(
+        f"SELECT * FROM classes WHERE id IN ({placeholders}) ORDER BY name", accessible
+    ).fetchall()
+
+
+@app.route("/materials", methods=["GET", "POST"])
+@login_required()
+def materials():
+    conn = get_db()
+    school_id = current_school_id()
+    can_upload = session.get("role") in ("admin", "sub_admin")
+
+    if request.method == "POST":
+        if not can_upload:
+            conn.close()
+            flash("Only a School Admin can upload learning materials.", "error")
+            return redirect(url_for("materials"))
+        session_id = request.form.get("session_id", type=int)
+        class_id = request.form.get("class_id", type=int)
+        subject_id = request.form.get("subject_id", type=int)
+        title = request.form.get("title", "").strip()
+        kind = request.form.get("kind", "Notes")
+        external_url = request.form.get("external_url", "").strip()
+        kind = kind if kind in MATERIAL_KINDS else "Notes"
+
+        owner_session = conn.execute("SELECT * FROM sessions WHERE id=? AND school_id=?", (session_id, school_id)).fetchone()
+        owner_class = conn.execute("SELECT * FROM classes WHERE id=? AND school_id=?", (class_id, school_id)).fetchone()
+        owner_subject = conn.execute(
+            "SELECT s.* FROM subjects s JOIN class_subjects cs ON cs.subject_id=s.id "
+            "WHERE s.id=? AND cs.class_id=? AND s.school_id=?", (subject_id, class_id, school_id)
+        ).fetchone()
+
+        file = request.files.get("file")
+        has_file = file and file.filename
+
+        if not (owner_session and owner_class and owner_subject):
+            flash("Choose a valid session, class and subject.", "error")
+        elif not title:
+            flash("Give the material a title.", "error")
+        elif not has_file and not external_url:
+            flash("Attach a file or provide a link.", "error")
+        else:
+            filename = original_filename = None
+            if has_file:
+                ext = _material_extension(file.filename)
+                if ext not in MATERIAL_EXTENSIONS:
+                    conn.close()
+                    flash("File type not supported. Upload a PDF, Word, PowerPoint or image file — for videos, paste a link instead.", "error")
+                    return redirect(url_for("materials"))
+                school_dir = os.path.join(MATERIALS_DIR, str(school_id))
+                os.makedirs(school_dir, exist_ok=True)
+                original_filename = secure_filename(file.filename)
+                filename = f"{secrets.token_hex(8)}.{ext}"
+                file.save(os.path.join(school_dir, filename))
+
+            conn.execute(
+                "INSERT INTO materials (school_id, session_id, class_id, subject_id, title, kind, "
+                "filename, original_filename, external_url, uploaded_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (school_id, session_id, class_id, subject_id, title, kind,
+                 filename, original_filename, external_url or None, session["user_id"]),
+            )
+            conn.commit()
+            log_audit(conn, session["role"], session.get("name"), "material_upload",
+                       f"{title} — {owner_class['name']} / {owner_subject['name']}", school_id=school_id)
+            conn.commit()
+            flash("Material uploaded.", "success")
+        return redirect(url_for(
+            "materials", session_id=session_id, class_id=class_id, subject_id=subject_id
+        ))
+
+    accessible_classes = _staff_accessible_classes(conn)
+    accessible_ids = [c["id"] for c in accessible_classes]
+
+    all_sessions = conn.execute("SELECT * FROM sessions WHERE school_id=? ORDER BY id DESC", (school_id,)).fetchall()
+    active_session = conn.execute("SELECT * FROM sessions WHERE school_id=? AND is_active=1", (school_id,)).fetchone()
+    session_id = request.args.get("session_id", type=int) or (active_session["id"] if active_session else None)
+
+    class_id = request.args.get("class_id", type=int)
+    if class_id not in accessible_ids:
+        class_id = accessible_ids[0] if accessible_ids else None
+
+    subjects = []
+    items = []
+    if class_id:
+        subjects = conn.execute(
+            "SELECT s.* FROM subjects s JOIN class_subjects cs ON cs.subject_id=s.id "
+            "WHERE cs.class_id=? ORDER BY s.name", (class_id,)
+        ).fetchall()
+        subject_id = request.args.get("subject_id", type=int)
+        query = (
+            "SELECT m.*, sub.name as subject_name, u.name as uploaded_by_name FROM materials m "
+            "JOIN subjects sub ON sub.id=m.subject_id LEFT JOIN users u ON u.id=m.uploaded_by "
+            "WHERE m.class_id=? AND m.session_id=?"
+        )
+        params = [class_id, session_id]
+        if subject_id:
+            query += " AND m.subject_id=?"
+            params.append(subject_id)
+        query += " ORDER BY m.uploaded_at DESC"
+        items = conn.execute(query, params).fetchall()
+
+    conn.close()
+    return render_template(
+        "materials.html", can_upload=can_upload, accessible_classes=accessible_classes,
+        all_sessions=all_sessions, session_id=session_id, class_id=class_id,
+        subjects=subjects, items=items, kinds=MATERIAL_KINDS,
+        selected_subject_id=request.args.get("subject_id", type=int),
+    )
+
+
+@app.route("/materials/<int:material_id>/delete", methods=["POST"])
+@login_required("admin", "sub_admin")
+def delete_material(material_id):
+    conn = get_db()
+    m = conn.execute("SELECT * FROM materials WHERE id=? AND school_id=?", (material_id, current_school_id())).fetchone()
+    if not m:
+        conn.close()
+        flash("Material not found.", "error")
+        return redirect(url_for("materials"))
+    if m["filename"]:
+        p = os.path.join(MATERIALS_DIR, str(current_school_id()), m["filename"])
+        if os.path.exists(p):
+            os.remove(p)
+    conn.execute("DELETE FROM materials WHERE id=?", (material_id,))
+    conn.commit()
+    log_audit(conn, session["role"], session.get("name"), "material_delete", m["title"], school_id=current_school_id())
+    conn.commit()
+    conn.close()
+    flash("Material removed.", "success")
+    return redirect(url_for("materials", session_id=m["session_id"], class_id=m["class_id"]))
+
+
+def _authorize_material_for_download(conn, material_id):
+    """Returns the material row if the current staff member is allowed to
+    see it — the same class-access rule already used for results and
+    broadsheets — or None otherwise, so the caller can refuse."""
+    m = conn.execute("SELECT * FROM materials WHERE id=? AND school_id=?", (material_id, current_school_id())).fetchone()
+    if not m:
+        return None
+    if not can_view_class_results(conn, session.get("role"), session.get("position"), session.get("user_id"), m["class_id"]):
+        return None
+    return m
+
+
+@app.route("/materials/<int:material_id>/download")
+@login_required()
+def download_material(material_id):
+    conn = get_db()
+    m = _authorize_material_for_download(conn, material_id)
+    conn.close()
+    if not m:
+        flash("You don't have access to that material.", "error")
+        return redirect(url_for("materials"))
+    if m["external_url"]:
+        return redirect(m["external_url"])
+    return send_from_directory(
+        os.path.join(MATERIALS_DIR, str(current_school_id())), m["filename"],
+        as_attachment=True, download_name=m["original_filename"] or m["filename"],
+    )
+
+
+# ---------- staff attendance ----------
+
+@app.route("/admin/staff-attendance", methods=["GET", "POST"])
+@login_required("admin", "sub_admin")
+def staff_attendance():
+    conn = get_db()
+    school_id = current_school_id()
+    staff = conn.execute(
+        "SELECT * FROM users WHERE school_id=? ORDER BY role, name", (school_id,)
+    ).fetchall()
+
+    date_str = request.values.get("date", "").strip() or datetime.date.today().isoformat()
+    try:
+        datetime.date.fromisoformat(date_str)
+    except ValueError:
+        date_str = datetime.date.today().isoformat()
+
+    if request.method == "POST":
+        counts = {s: 0 for s in STAFF_ATTENDANCE_STATUSES}
+        for member in staff:
+            status = request.form.get(f"status_{member['id']}", "Present")
+            if status not in STAFF_ATTENDANCE_STATUSES:
+                status = "Present"
+            counts[status] += 1
+            conn.execute(
+                "INSERT INTO staff_attendance (school_id, user_id, date, status, recorded_by) "
+                "VALUES (?,?,?,?,?) "
+                "ON CONFLICT(user_id, date) DO UPDATE SET status=excluded.status, "
+                "recorded_by=excluded.recorded_by, recorded_at=CURRENT_TIMESTAMP",
+                (school_id, member["id"], date_str, status, session["user_id"]),
+            )
+        conn.commit()
+        log_audit(
+            conn, session["role"], session.get("name"), "staff_attendance",
+            f"{date_str}: " + ", ".join(f"{v} {k}" for k, v in counts.items() if v),
+            school_id=school_id,
+        )
+        conn.commit()
+        flash(f"Staff attendance saved for {format_dmy(date_str)}.", "success")
+        conn.close()
+        return redirect(url_for("staff_attendance", date=date_str))
+
+    existing = {
+        r["user_id"]: r["status"] for r in conn.execute(
+            "SELECT user_id, status FROM staff_attendance WHERE school_id=? AND date=?",
+            (school_id, date_str),
+        ).fetchall()
+    }
+    conn.close()
+    prev_day = (datetime.date.fromisoformat(date_str) - datetime.timedelta(days=1)).isoformat()
+    next_day = (datetime.date.fromisoformat(date_str) + datetime.timedelta(days=1)).isoformat()
+    return render_template(
+        "staff_attendance.html", staff=staff, date_str=date_str, prev_day=prev_day, next_day=next_day,
+        existing=existing, today=datetime.date.today().isoformat(), statuses=STAFF_ATTENDANCE_STATUSES,
+        position_labels=POSITION_LABELS,
+    )
+
+
+@app.route("/admin/staff-attendance/history")
+@login_required("admin", "sub_admin")
+def staff_attendance_history():
+    conn = get_db()
+    school_id = current_school_id()
+    today = datetime.date.today()
+    start = request.args.get("start", "").strip() or today.replace(day=1).isoformat()
+    end = request.args.get("end", "").strip() or today.isoformat()
+    try:
+        datetime.date.fromisoformat(start)
+        datetime.date.fromisoformat(end)
+    except ValueError:
+        start, end = today.replace(day=1).isoformat(), today.isoformat()
+
+    staff = conn.execute("SELECT * FROM users WHERE school_id=? ORDER BY role, name", (school_id,)).fetchall()
+    summaries = []
+    for member in staff:
+        counts = {s: 0 for s in STAFF_ATTENDANCE_STATUSES}
+        rows = conn.execute(
+            "SELECT status, COUNT(*) as c FROM staff_attendance "
+            "WHERE user_id=? AND date BETWEEN ? AND ? GROUP BY status",
+            (member["id"], start, end),
+        ).fetchall()
+        for r in rows:
+            counts[r["status"]] = r["c"]
+        summaries.append({"staff": member, "counts": counts, "total": sum(counts.values())})
+
+    days = conn.execute(
+        "SELECT date, "
+        "SUM(CASE WHEN status='Present' THEN 1 ELSE 0 END) AS present, "
+        "SUM(CASE WHEN status='Absent' THEN 1 ELSE 0 END) AS absent, "
+        "SUM(CASE WHEN status='Late' THEN 1 ELSE 0 END) AS late, "
+        "SUM(CASE WHEN status='Leave' THEN 1 ELSE 0 END) AS leave_count "
+        "FROM staff_attendance WHERE school_id=? AND date BETWEEN ? AND ? GROUP BY date ORDER BY date DESC",
+        (school_id, start, end),
+    ).fetchall()
+    conn.close()
+    return render_template(
+        "staff_attendance_history.html", summaries=summaries, days=days, start=start, end=end,
+        position_labels=POSITION_LABELS,
+    )
+
+
+@app.route("/reports/staff_attendance")
+@login_required("admin", "sub_admin")
+def report_staff_attendance(fmt=None):
+    fmt = request.args.get("format", "csv")
+    conn = get_db()
+    school_id = current_school_id()
+    today = datetime.date.today()
+    start = request.args.get("start", "").strip() or today.replace(day=1).isoformat()
+    end = request.args.get("end", "").strip() or today.isoformat()
+    try:
+        datetime.date.fromisoformat(start)
+        datetime.date.fromisoformat(end)
+    except ValueError:
+        start, end = today.replace(day=1).isoformat(), today.isoformat()
+
+    staff = conn.execute("SELECT * FROM users WHERE school_id=? ORDER BY role, name", (school_id,)).fetchall()
+    headers = ["Staff Name", "Role", "Present", "Absent", "Late", "Leave", "Days Recorded"]
+    rows = []
+    for member in staff:
+        counts = {s: 0 for s in STAFF_ATTENDANCE_STATUSES}
+        for r in conn.execute(
+            "SELECT status, COUNT(*) as c FROM staff_attendance WHERE user_id=? AND date BETWEEN ? AND ? GROUP BY status",
+            (member["id"], start, end),
+        ).fetchall():
+            counts[r["status"]] = r["c"]
+        role_label = POSITION_LABELS.get(member["position"], member["role"].replace("_", " ").title())
+        rows.append([
+            member["name"], role_label, counts["Present"], counts["Absent"], counts["Late"], counts["Leave"],
+            sum(counts.values()),
+        ])
+    conn.close()
+    fname = f"staff_attendance_{start}_to_{end}".replace("/", "-")
+    return _send_report(fmt, "Staff Attendance", headers, rows, fname, subtitle=f"{format_dmy(start)} to {format_dmy(end)}")
+
+
 # ---------- reports & analytics ----------
 
 @app.route("/reports")
@@ -2984,13 +3407,27 @@ def reports_hub():
     return render_template("reports_hub.html", classes=classes, all_terms=all_terms, students=students, student_full_name=student_full_name)
 
 
-def _send_report(fmt, title, headers, rows, filename_base):
+def _send_report(fmt, title, headers, rows, filename_base, subtitle=""):
     if fmt == "xlsx":
         buf = build_xlsx(title, headers, rows)
         return send_file(
             buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             as_attachment=True, download_name=f"{filename_base}.xlsx",
         )
+    if fmt == "pdf":
+        conn = get_db()
+        school = get_school(conn, current_school_id())
+        logo_path = None
+        if school and school["logo_filename"]:
+            p = os.path.join(INSTANCE_DIR, school["logo_filename"])
+            if os.path.exists(p):
+                logo_path = p
+        conn.close()
+        buf = build_generic_table_pdf(
+            title.upper(), subtitle, headers, rows,
+            school_name=school["name"] if school else None, logo_path=logo_path,
+        )
+        return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=f"{filename_base}.pdf")
     buf = build_csv(headers, rows)
     return send_file(buf, mimetype="text/csv", as_attachment=True, download_name=f"{filename_base}.csv")
 
@@ -3154,6 +3591,7 @@ def student_login_required(f):
 
 
 @app.route("/student/login", methods=["GET", "POST"])
+@rate_limit(max_attempts=10, window_seconds=300)
 def student_login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -3223,6 +3661,92 @@ def student_notifications():
         conn.commit()
     conn.close()
     return render_template("notifications_inbox.html", notifications=notifications)
+
+
+@app.route("/student/materials")
+@student_login_required
+def student_materials():
+    conn = get_db()
+    student_id = session["student_id"]
+    student = conn.execute("SELECT * FROM students WHERE id=?", (student_id,)).fetchone()
+    if not student:
+        session.clear()
+        conn.close()
+        return redirect(url_for("student_login"))
+
+    # A student may only browse sessions they were actually enrolled in —
+    # never an arbitrary session_id typed into the URL.
+    enrolled_sessions = conn.execute(
+        "SELECT sessions.* FROM sessions JOIN enrollments e ON e.session_id=sessions.id "
+        "WHERE e.student_id=? ORDER BY sessions.id DESC", (student_id,)
+    ).fetchall()
+    active_session = conn.execute(
+        "SELECT * FROM sessions WHERE school_id=? AND is_active=1", (session.get("school_id"),)
+    ).fetchone()
+    requested_session_id = request.args.get("session_id", type=int)
+    valid_ids = [s["id"] for s in enrolled_sessions]
+    if requested_session_id in valid_ids:
+        session_id = requested_session_id
+    elif active_session and active_session["id"] in valid_ids:
+        session_id = active_session["id"]
+    elif valid_ids:
+        session_id = valid_ids[0]
+    else:
+        session_id = None
+
+    class_id = student["class_id"]
+    if session_id:
+        enrollment = conn.execute(
+            "SELECT class_id FROM enrollments WHERE student_id=? AND session_id=?", (student_id, session_id)
+        ).fetchone()
+        if enrollment:
+            class_id = enrollment["class_id"]
+
+    subjects = []
+    items = []
+    if session_id and class_id:
+        subjects = conn.execute(
+            "SELECT s.* FROM subjects s JOIN class_subjects cs ON cs.subject_id=s.id "
+            "WHERE cs.class_id=? ORDER BY s.name", (class_id,)
+        ).fetchall()
+        items = conn.execute(
+            "SELECT m.*, sub.name as subject_name FROM materials m "
+            "JOIN subjects sub ON sub.id=m.subject_id "
+            "WHERE m.class_id=? AND m.session_id=? ORDER BY sub.name, m.uploaded_at DESC",
+            (class_id, session_id),
+        ).fetchall()
+    class_row = conn.execute("SELECT * FROM classes WHERE id=?", (class_id,)).fetchone() if class_id else None
+    conn.close()
+    return render_template(
+        "student_materials.html", enrolled_sessions=enrolled_sessions, session_id=session_id,
+        class_row=class_row, subjects=subjects, items=items,
+    )
+
+
+@app.route("/student/materials/<int:material_id>/download")
+@student_login_required
+def student_download_material(material_id):
+    conn = get_db()
+    student = conn.execute("SELECT * FROM students WHERE id=?", (session["student_id"],)).fetchone()
+    if not student:
+        conn.close()
+        return redirect(url_for("student_login"))
+    m = conn.execute("SELECT * FROM materials WHERE id=? AND school_id=?", (material_id, session.get("school_id"))).fetchone()
+    # A student's class for that material's OWN session is the access
+    # boundary — not just their current class — so materials from before a
+    # promotion stay reachable, but a material from any other class
+    # (including another category/arm at the same level) never is.
+    my_class_for_that_session = student_class_for_session(conn, student["id"], m["session_id"]) if m else None
+    conn.close()
+    if not m or my_class_for_that_session != m["class_id"]:
+        flash("That material isn't available to you.", "error")
+        return redirect(url_for("student_materials"))
+    if m["external_url"]:
+        return redirect(m["external_url"])
+    return send_from_directory(
+        os.path.join(MATERIALS_DIR, str(session["school_id"])), m["filename"],
+        as_attachment=True, download_name=m["original_filename"] or m["filename"],
+    )
 
 
 @app.route("/student/result/<int:term_id>")
@@ -3308,6 +3832,7 @@ def platform_admin_required(f):
 
 
 @app.route("/platform/login", methods=["GET", "POST"])
+@rate_limit(max_attempts=10, window_seconds=300)
 def platform_login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -3385,7 +3910,7 @@ def platform_schools_export():
     headers = ["School", "Status", "Admins", "Teachers", "Classes", "Students", "Created"]
     rows = [
         [s["name"], "Suspended" if s["is_suspended"] else "Active", s["admin_count"],
-         s["teacher_count"], s["class_count"], s["student_count"], s["created_at"]]
+         s["teacher_count"], s["class_count"], s["student_count"], format_dmy(s["created_at"])]
         for s in schools
     ]
     return _send_report(fmt, "Schools", headers, rows, "platform_schools_summary")
