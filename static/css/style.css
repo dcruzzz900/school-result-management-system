@@ -192,6 +192,8 @@ label { font-size: 0.88rem; font-weight: 600; display: block; margin-top: 0.75re
 .btn-gold { background: var(--gold); }
 .btn-gold:hover { background: #a97f22; }
 .btn-small { padding: 0.3rem 0.7rem; font-size: 0.82rem; margin-top: 0; }
+.badge { display:inline-block; background:var(--gold); color:#3a2c05; font-size:0.72rem; padding:0.1rem 0.45rem; border-radius:1rem; margin-left:0.3rem; }
+.live-clock { text-align:right; font-size:0.8rem; color:#888; margin: 0.3rem 0 0.6rem; }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
 
