@@ -1,6 +1,6 @@
 from flask import (
     Flask, render_template, request, redirect, url_for, session, flash,
-    send_file, send_from_directory,
+    send_file, send_from_directory, g,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -12,6 +12,7 @@ import io
 import csv as csv_module
 import secrets
 import time
+import re
 import threading
 from collections import defaultdict, deque
 
@@ -24,6 +25,7 @@ from db import (
     recompute_attendance, attendance_percentage,
     generate_teacher_comment, generate_principal_comment,
     CLASS_CATEGORIES, MATERIAL_KINDS, format_dmy, STAFF_ATTENDANCE_STATUSES,
+    PDF_FONT_CHOICES, WEB_FONTS,
 )
 import datetime
 from pdf_utils import build_broadsheet_pdf, build_result_pdf, build_class_results_pdf, build_cumulative_result_pdf, build_generic_table_pdf
@@ -150,6 +152,59 @@ def rate_limit(max_attempts, window_seconds):
             return f(*args, **kwargs)
         return wrapped
     return decorator
+
+
+# ---------- custom subdomains ----------
+# A school's chosen subdomain (e.g. "greenwood") only means something once
+# the *hosting* is set up to route greenwood.<your-domain> to this same
+# Flask app — a database column can't make DNS point anywhere. BASE_DOMAIN
+# is the one thing the app needs told about that setup: the domain schools'
+# subdomains sit under. Leave it unset and this feature quietly does
+# nothing (every visitor just sees the normal, unbranded login page).
+BASE_DOMAIN = os.environ.get("BASE_DOMAIN", "").strip().lower().rstrip(".")
+
+RESERVED_SUBDOMAINS = {"www", "app", "api", "admin", "mail", "portal", "static", "assets"}
+
+
+def _resolve_subdomain_from_host():
+    if not BASE_DOMAIN:
+        return None
+    host = request.host.split(":")[0].lower()
+    suffix = "." + BASE_DOMAIN
+    if not host.endswith(suffix):
+        return None
+    label = host[: -len(suffix)]
+    if not label or "." in label:  # only a single subdomain label, not a deeper one
+        return None
+    return label
+
+
+@app.before_request
+def _load_portal_school():
+    g.portal_school = None
+    label = _resolve_subdomain_from_host()
+    if label and label not in RESERVED_SUBDOMAINS:
+        conn = get_db()
+        g.portal_school = conn.execute("SELECT * FROM schools WHERE subdomain=?", (label,)).fetchone()
+        conn.close()
+
+
+@app.context_processor
+def inject_portal_school():
+    return dict(portal_school=g.get("portal_school"))
+
+
+@app.route("/portal-logo/<int:school_id>")
+def portal_logo(school_id):
+    """Publicly serves a school's logo so its subdomain's login page can
+    show it before anyone has signed in — a school's own logo isn't
+    sensitive, so this is intentionally not session-gated."""
+    conn = get_db()
+    school = get_school(conn, school_id)
+    conn.close()
+    if not school or not school["logo_filename"]:
+        return "", 404
+    return send_from_directory(INSTANCE_DIR, school["logo_filename"])
 
 
 # ---------- helpers ----------
@@ -368,13 +423,15 @@ def inject_school_settings():
         conn.close()
         if school:
             logo_url = url_for("school_logo") if school["logo_filename"] else None
+            font = WEB_FONTS.get(school["web_font"] or "system", WEB_FONTS["system"])
             return dict(
                 school_name=school["name"], school_logo_url=logo_url,
                 school_logo_align=school["logo_align"],
                 cumulative_enabled=bool(school["cumulative_enabled"]),
+                web_font_css=font["css"], web_font_google=font["google"],
             )
     return dict(school_name="School Result System", school_logo_url=None, school_logo_align="center",
-                cumulative_enabled=False)
+                cumulative_enabled=False, web_font_css=WEB_FONTS["system"]["css"], web_font_google=None)
 
 
 @app.context_processor
@@ -413,6 +470,9 @@ def login():
             conn.close()
             if school and school["is_suspended"]:
                 flash("This school's account has been suspended. Contact the platform administrator.", "error")
+                return render_template("login.html")
+            if g.portal_school and (not school or school["id"] != g.portal_school["id"]):
+                flash(f"That account isn't registered under {g.portal_school['name']}'s portal.", "error")
                 return render_template("login.html")
             session["user_id"] = user["id"]
             session["name"] = user["name"]
@@ -731,12 +791,19 @@ def admin_school():
             logo_align = "center"
         auto_teacher_comment = 1 if request.form.get("auto_teacher_comment") else 0
         auto_principal_comment = 1 if request.form.get("auto_principal_comment") else 0
+        web_font = request.form.get("web_font", "system")
+        if web_font not in WEB_FONTS:
+            web_font = "system"
+        pdf_font = request.form.get("pdf_font", "Helvetica")
+        if pdf_font not in PDF_FONT_CHOICES:
+            pdf_font = "Helvetica"
         if not name:
             flash("School name cannot be empty.", "error")
         else:
             conn.execute(
-                "UPDATE schools SET name=?, logo_align=?, auto_teacher_comment=?, auto_principal_comment=? WHERE id=?",
-                (name, logo_align, auto_teacher_comment, auto_principal_comment, school_id),
+                "UPDATE schools SET name=?, logo_align=?, auto_teacher_comment=?, auto_principal_comment=?, "
+                "web_font=?, pdf_font=? WHERE id=?",
+                (name, logo_align, auto_teacher_comment, auto_principal_comment, web_font, pdf_font, school_id),
             )
             conn.commit()
             flash("School profile updated.", "success")
@@ -761,7 +828,43 @@ def admin_school():
 
     settings = get_school(conn, school_id)
     conn.close()
-    return render_template("admin_school.html", settings=settings)
+    return render_template("admin_school.html", settings=settings, web_fonts=WEB_FONTS, pdf_fonts=PDF_FONT_CHOICES,
+                            base_domain=BASE_DOMAIN)
+
+
+@app.route("/admin/school/subdomain", methods=["POST"])
+@login_required("admin", "sub_admin")
+def set_school_subdomain():
+    conn = get_db()
+    school_id = current_school_id()
+    raw = request.form.get("subdomain", "").strip().lower()
+    if not raw:
+        conn.execute("UPDATE schools SET subdomain=NULL WHERE id=?", (school_id,))
+        conn.commit()
+        conn.close()
+        flash("Custom subdomain removed.", "success")
+        return redirect(url_for("admin_school"))
+
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])?", raw):
+        conn.close()
+        flash("Subdomain must be 3-30 characters: lowercase letters, digits and hyphens only, and can't start or end with a hyphen.", "error")
+        return redirect(url_for("admin_school"))
+    if raw in RESERVED_SUBDOMAINS:
+        conn.close()
+        flash(f"'{raw}' is reserved and can't be used as a subdomain.", "error")
+        return redirect(url_for("admin_school"))
+
+    taken = conn.execute("SELECT id FROM schools WHERE subdomain=? AND id!=?", (raw, school_id)).fetchone()
+    if taken:
+        conn.close()
+        flash(f"'{raw}' is already taken by another school. Please choose a different subdomain.", "error")
+        return redirect(url_for("admin_school"))
+
+    conn.execute("UPDATE schools SET subdomain=? WHERE id=?", (raw, school_id))
+    conn.commit()
+    conn.close()
+    flash(f"Subdomain set to '{raw}'.", "success")
+    return redirect(url_for("admin_school"))
 
 
 @app.route("/admin/school/remove_logo", methods=["POST"])
@@ -2578,6 +2681,7 @@ def broadsheet_pdf(class_id):
         class_row, term, subjects, rows,
         school_name=school["name"] if school else None,
         logo_path=logo_path, student_full_name=student_full_name,
+        font_choice=school["pdf_font"] if school else "Helvetica",
     )
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
                       download_name=f"broadsheet_{class_row['name']}_{term['name']}.pdf".replace(" ", "_"))
@@ -2651,7 +2755,8 @@ def email_class_results(class_id):
             if os.path.exists(p):
                 logo_path = p
         pdf_buf = build_result_pdf(data, term, school_name=school["name"] if school else None,
-                                    logo_path=logo_path, student_full_name=student_full_name)
+                                    logo_path=logo_path, student_full_name=student_full_name,
+                                    font_choice=school["pdf_font"] if school else "Helvetica")
         ok, _ = send_email(
             school, st["parent_email"],
             f"{student_full_name(st)}'s Result — {term['session_name']} {term['name']}",
@@ -2801,6 +2906,7 @@ def result_pdf(student_id):
     buf = build_result_pdf(
         data, term, school_name=school["name"] if school else None,
         logo_path=logo_path, student_full_name=student_full_name,
+        font_choice=school["pdf_font"] if school else "Helvetica",
     )
     fname = f"result_{data['student']['admission_no']}_{term['name']}.pdf".replace(" ", "_").replace("/", "-")
     return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=fname)
@@ -2874,6 +2980,7 @@ def cumulative_result_pdf(student_id):
     buf = build_cumulative_result_pdf(
         data, session_row, school_name=school["name"] if school else None,
         logo_path=logo_path, student_full_name=student_full_name,
+        font_choice=school["pdf_font"] if school else "Helvetica",
     )
     fname = f"annual_result_{data['student']['admission_no']}_{session_row['name']}.pdf".replace(" ", "_").replace("/", "-")
     return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=fname)
@@ -2918,7 +3025,8 @@ def email_result(student_id):
         if os.path.exists(p):
             logo_path = p
     pdf_buf = build_result_pdf(data, term, school_name=school["name"] if school else None,
-                                logo_path=logo_path, student_full_name=student_full_name)
+                                logo_path=logo_path, student_full_name=student_full_name,
+                                font_choice=school["pdf_font"] if school else "Helvetica")
     conn.close()
     ok, msg = send_email(
         school, student_row["parent_email"],
@@ -3061,6 +3169,7 @@ def class_results_pdf(class_id):
     buf = build_class_results_pdf(
         data_list, term, school_name=school["name"] if school else None,
         logo_path=logo_path, student_full_name=student_full_name,
+        font_choice=school["pdf_font"] if school else "Helvetica",
     )
     fname = f"all_results_{class_row['name']}_{term['name']}.pdf".replace(" ", "_")
     return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=fname)
@@ -3426,6 +3535,7 @@ def _send_report(fmt, title, headers, rows, filename_base, subtitle=""):
         buf = build_generic_table_pdf(
             title.upper(), subtitle, headers, rows,
             school_name=school["name"] if school else None, logo_path=logo_path,
+            font_choice=school["pdf_font"] if school else "Helvetica",
         )
         return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=f"{filename_base}.pdf")
     buf = build_csv(headers, rows)
@@ -3606,6 +3716,9 @@ def student_login():
             conn.close()
             if school and school["is_suspended"]:
                 flash("This school's account has been suspended. Contact the platform administrator.", "error")
+                return render_template("student_login.html")
+            if g.portal_school and (not school or school["id"] != g.portal_school["id"]):
+                flash(f"That account isn't registered under {g.portal_school['name']}'s portal.", "error")
                 return render_template("student_login.html")
             session.clear()
             session["student_id"] = student["id"]
@@ -3808,7 +3921,8 @@ def student_result_pdf(term_id):
             logo_path = p
     conn.close()
     buf = build_result_pdf(data, term, school_name=school["name"] if school else None,
-                            logo_path=logo_path, student_full_name=student_full_name)
+                            logo_path=logo_path, student_full_name=student_full_name,
+                            font_choice=school["pdf_font"] if school else "Helvetica")
     fname = f"result_{data['student']['admission_no']}_{term['name']}.pdf".replace(" ", "_").replace("/", "-")
     return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=fname)
 

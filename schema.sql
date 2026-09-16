@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS schools (
     auto_teacher_comment INTEGER DEFAULT 0,
     auto_principal_comment INTEGER DEFAULT 0,
     cumulative_enabled INTEGER DEFAULT 0,
+    web_font TEXT DEFAULT 'system',
+    pdf_font TEXT DEFAULT 'Helvetica',
+    subdomain TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -318,6 +321,8 @@ CREATE TABLE IF NOT EXISTS staff_attendance (
 );
 
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_school_date ON staff_attendance(school_id, date);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_subdomain ON schools(subdomain) WHERE subdomain IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL

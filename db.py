@@ -445,6 +445,26 @@ def migration_019_staff_attendance(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_staff_attendance_school_date ON staff_attendance(school_id, date)")
 
 
+def migration_020_font_customization(conn):
+    """Per-school font customization: `web_font` picks the app's UI
+    typeface (a curated Google Font, or the system default), and
+    `pdf_font` picks which of reportlab's base font families the printed
+    result sheets, broadsheets and reports use."""
+    ensure_column(conn, "schools", "web_font", "TEXT DEFAULT 'system'")
+    ensure_column(conn, "schools", "pdf_font", "TEXT DEFAULT 'Helvetica'")
+
+
+def migration_021_school_subdomain(conn):
+    """Each school can claim a unique subdomain slug (e.g. 'greenwood').
+    This column, plus the app's own host-header check, is the whole of
+    what the application layer can do here — actually routing traffic
+    like greenwood.yourdomain.com to this app is a DNS/hosting-level
+    setup outside anything a database migration can configure; see the
+    Custom Subdomain section on Setup → School Profile for what's needed."""
+    ensure_column(conn, "schools", "subdomain", "TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_subdomain ON schools(subdomain) WHERE subdomain IS NOT NULL")
+
+
 MIGRATIONS = [
     migration_001_baseline,
     migration_002_multi_school,
@@ -465,6 +485,8 @@ MIGRATIONS = [
     migration_017_class_category,
     migration_018_learning_materials,
     migration_019_staff_attendance,
+    migration_020_font_customization,
+    migration_021_school_subdomain,
 ]
 
 
@@ -602,6 +624,20 @@ def grade_for(score, conn, school_id):
 CLASS_CATEGORIES = ["Science", "Arts", "Commercial"]
 MATERIAL_KINDS = ["Notes", "Assignment", "Study Guide", "Other"]
 STAFF_ATTENDANCE_STATUSES = ["Present", "Absent", "Late", "Leave"]
+
+PDF_FONT_CHOICES = ["Helvetica", "Times-Roman", "Courier"]
+
+# Per-school web UI font. "system" needs no external request; the rest are
+# loaded from Google Fonts by the browser, keyed by the exact family+weight
+# query string fonts.googleapis.com expects.
+WEB_FONTS = {
+    "system": {"label": "System Default", "google": None,
+               "css": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"},
+    "inter": {"label": "Inter", "google": "Inter:wght@400;600;700", "css": "'Inter', sans-serif"},
+    "roboto": {"label": "Roboto", "google": "Roboto:wght@400;500;700", "css": "'Roboto', sans-serif"},
+    "merriweather": {"label": "Merriweather (serif)", "google": "Merriweather:wght@400;700", "css": "'Merriweather', serif"},
+    "poppins": {"label": "Poppins", "google": "Poppins:wght@400;600;700", "css": "'Poppins', sans-serif"},
+}
 
 
 def get_school(conn, school_id):

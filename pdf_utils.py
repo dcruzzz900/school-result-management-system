@@ -10,6 +10,29 @@ from reportlab.platypus import (
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 
+# Reportlab only ships the base-14 fonts without embedding a font file, so
+# "font customization" here means choosing among these three families —
+# each has real regular/bold variants reportlab already knows about.
+PDF_FONT_CHOICES = {
+    "Helvetica": ("Helvetica", "Helvetica-Bold"),
+    "Times-Roman": ("Times-Roman", "Times-Bold"),
+    "Courier": ("Courier", "Courier-Bold"),
+}
+
+
+def _apply_pdf_font(styles, font_choice):
+    """Mutates the base stylesheet in place so every ParagraphStyle built
+    from it afterwards (via parent=styles[...]) picks up the school's
+    chosen font automatically. Returns (regular, bold) font names, since
+    Tables don't inherit from the paragraph stylesheet and need their
+    FONTNAME set explicitly wherever one is used below."""
+    regular, bold = PDF_FONT_CHOICES.get(font_choice, PDF_FONT_CHOICES["Helvetica"])
+    for name in styles.byName:
+        style = styles[name]
+        is_heading = name.lower().startswith("heading") or name.lower() == "title"
+        style.fontName = bold if is_heading else regular
+    return regular, bold
+
 
 def _header_elements(school_name, logo_path, document_title, subtitle_text, styles):
     """Shared letterhead: logo (if any) + school name + document title + subtitle."""
@@ -42,10 +65,11 @@ def _header_elements(school_name, logo_path, document_title, subtitle_text, styl
     return elements
 
 
-def build_broadsheet_pdf(class_row, term, subjects, rows, school_name=None, logo_path=None, student_full_name=None):
+def build_broadsheet_pdf(class_row, term, subjects, rows, school_name=None, logo_path=None, student_full_name=None, font_choice="Helvetica"):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4), topMargin=1 * cm, bottomMargin=1 * cm)
     styles = getSampleStyleSheet()
+    regular, bold = _apply_pdf_font(styles, font_choice)
 
     elements = _header_elements(
         school_name, logo_path, "BROADSHEET",
@@ -70,6 +94,8 @@ def build_broadsheet_pdf(class_row, term, subjects, rows, school_name=None, logo
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f3a5f")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, -1), regular),
+        ("FONTNAME", (0, 0), (-1, 0), bold),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
@@ -85,6 +111,8 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
     """Builds the flowable elements for one student's terminal result —
     shared by the single-student PDF and the whole-class PDF."""
     section_style = ParagraphStyle("section", parent=styles["Heading3"])
+    regular = styles["Normal"].fontName
+    bold = styles["Heading1"].fontName
 
     student = data["student"]
     class_row = data["class_row"]
@@ -105,8 +133,9 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
     ], colWidths=[3 * cm, 5 * cm, 3.5 * cm, 5.5 * cm])
     info_table.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+        ("FONTNAME", (0, 0), (-1, -1), regular),
+        ("FONTNAME", (0, 0), (0, -1), bold),
+        ("FONTNAME", (2, 0), (2, -1), bold),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     elements.append(info_table)
@@ -122,6 +151,8 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
     subj_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f3a5f")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, -1), regular),
+        ("FONTNAME", (0, 0), (-1, 0), bold),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"),
@@ -139,6 +170,8 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
         skill_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f3a5f")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, -1), regular),
+            ("FONTNAME", (0, 0), (-1, 0), bold),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
             ("ALIGN", (1, 0), (-1, -1), "CENTER"),
@@ -159,6 +192,7 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
     att_table.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME", (0, 0), (-1, -1), regular),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
     ]))
     elements.append(att_table)
@@ -187,22 +221,24 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
     return elements
 
 
-def build_result_pdf(data, term, school_name=None, logo_path=None, student_full_name=None):
+def build_result_pdf(data, term, school_name=None, logo_path=None, student_full_name=None, font_choice="Helvetica"):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=1.2 * cm, bottomMargin=1.2 * cm)
     styles = getSampleStyleSheet()
+    _apply_pdf_font(styles, font_choice)
     elements = _result_elements(data, term, school_name, logo_path, student_full_name, styles)
     doc.build(elements)
     buf.seek(0)
     return buf
 
 
-def build_class_results_pdf(data_list, term, school_name=None, logo_path=None, student_full_name=None):
+def build_class_results_pdf(data_list, term, school_name=None, logo_path=None, student_full_name=None, font_choice="Helvetica"):
     """One combined, printable PDF containing every student's terminal
     result in a class, each starting on its own page."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=1.2 * cm, bottomMargin=1.2 * cm)
     styles = getSampleStyleSheet()
+    _apply_pdf_font(styles, font_choice)
     elements = []
     for i, data in enumerate(data_list):
         if i > 0:
@@ -213,12 +249,13 @@ def build_class_results_pdf(data_list, term, school_name=None, logo_path=None, s
     return buf
 
 
-def build_cumulative_result_pdf(data, session, school_name=None, logo_path=None, student_full_name=None):
+def build_cumulative_result_pdf(data, session, school_name=None, logo_path=None, student_full_name=None, font_choice="Helvetica"):
     """Annual/Cumulative Result: one column per term plus a cumulative
     average/grade per subject, for the whole session rather than one term."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=1.2 * cm, bottomMargin=1.2 * cm)
     styles = getSampleStyleSheet()
+    regular, bold = _apply_pdf_font(styles, font_choice)
     section_style = ParagraphStyle("section", parent=styles["Heading3"], textColor=colors.HexColor("#1f3a5f"))
 
     elements = _header_elements(
@@ -237,8 +274,9 @@ def build_cumulative_result_pdf(data, session, school_name=None, logo_path=None,
     ], colWidths=[3.5 * cm, 5 * cm, 3.5 * cm, 5 * cm])
     info_table.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+        ("FONTNAME", (0, 0), (-1, -1), regular),
+        ("FONTNAME", (0, 0), (0, -1), bold),
+        ("FONTNAME", (2, 0), (2, -1), bold),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     elements.append(info_table)
@@ -260,6 +298,8 @@ def build_cumulative_result_pdf(data, session, school_name=None, logo_path=None,
     subj_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f3a5f")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, -1), regular),
+        ("FONTNAME", (0, 0), (-1, 0), bold),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"),
@@ -277,13 +317,14 @@ def build_cumulative_result_pdf(data, session, school_name=None, logo_path=None,
     return buf
 
 
-def build_generic_table_pdf(title, subtitle, headers, rows, school_name=None, logo_path=None):
+def build_generic_table_pdf(title, subtitle, headers, rows, school_name=None, logo_path=None, font_choice="Helvetica"):
     """A plain landscape table report (headers + rows) with the school's
     letterhead — used for reports that aren't a results document, like the
     Staff Attendance export."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4), topMargin=1 * cm, bottomMargin=1 * cm)
     styles = getSampleStyleSheet()
+    regular, bold = _apply_pdf_font(styles, font_choice)
     elements = _header_elements(school_name, logo_path, title, subtitle, styles)
 
     data = [headers] + [[str(c) for c in row] for row in rows]
@@ -291,6 +332,8 @@ def build_generic_table_pdf(title, subtitle, headers, rows, school_name=None, lo
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f3a5f")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, -1), regular),
+        ("FONTNAME", (0, 0), (-1, 0), bold),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f2f2")]),
