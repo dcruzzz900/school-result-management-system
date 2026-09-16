@@ -3,8 +3,16 @@
 {% block content %}
 <div class="login-wrapper">
     <div class="card">
+        {% if portal_school %}
+        {% if portal_school.logo_filename %}
+        <img src="{{ url_for('portal_logo', school_id=portal_school.id) }}" alt="{{ portal_school.name }}" style="max-height:64px; display:block; margin:0 auto 0.5rem;">
+        {% endif %}
+        <h2 style="text-align:center;">{{ portal_school.name }} — Student Portal</h2>
+        <p style="color:#666; font-size:0.9rem; text-align:center;">Sign in to view your published results</p>
+        {% else %}
         <h2>📘 Student Portal</h2>
         <p style="color:#666; font-size:0.9rem;">Sign in to view your published results</p>
+        {% endif %}
         <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>Username</label>

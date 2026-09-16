@@ -12,6 +12,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Results">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+{% if web_font_google %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family={{ web_font_google }}&display=swap" rel="stylesheet">
+{% endif %}
+<style>:root { --app-font: {{ web_font_css|safe }}; }</style>
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

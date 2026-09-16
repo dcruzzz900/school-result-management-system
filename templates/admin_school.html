@@ -59,8 +59,55 @@
             types a comment by hand.
         </p>
 
+        <label style="margin-top:1rem;">Fonts</label>
+        <label>App Display Font</label>
+        <select name="web_font">
+            {% for key, f in web_fonts.items() %}
+            <option value="{{ key }}" {% if settings and settings.web_font == key %}selected{% endif %}>{{ f.label }}</option>
+            {% endfor %}
+        </select>
+        <label>Result Sheet / Report Font</label>
+        <select name="pdf_font">
+            {% for f in pdf_fonts %}
+            <option value="{{ f }}" {% if settings and settings.pdf_font == f %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+        </select>
+
         <button class="btn" type="submit" style="margin-top:1rem;">Save Changes</button>
     </form>
+</div>
+
+<div class="card" style="max-width:520px;">
+    <h3>Custom Subdomain</h3>
+    {% if base_domain %}
+    <p style="font-size:0.9rem; color:#666;">
+        Claim a subdomain and staff/students can sign in at
+        <code>https://&lt;your-subdomain&gt;.{{ base_domain }}</code> with this school's own branding
+        shown on the login page.
+    </p>
+    {% else %}
+    <p style="font-size:0.85rem; color:#b3261e;">
+        This deployment hasn't been configured with a base domain yet, so a claimed subdomain won't
+        resolve to anything until the hosting is set up for it — set the <code>BASE_DOMAIN</code>
+        environment variable (e.g. <code>results.yourschoolgroup.com</code>) and point a wildcard
+        DNS record at this app. You can still claim your subdomain name now.
+    </p>
+    {% endif %}
+    <form method="POST" action="{{ url_for('set_school_subdomain') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Subdomain</label>
+        <div style="display:flex; align-items:center; gap:0.4rem;">
+            <input type="text" name="subdomain" value="{{ settings.subdomain or '' }}"
+                   placeholder="greenwood" pattern="[a-z0-9-]{3,30}" style="flex:1;">
+            <span style="color:#666;">.{{ base_domain or 'yourdomain.com' }}</span>
+        </div>
+        <button class="btn" type="submit" style="margin-top:0.75rem;">Save Subdomain</button>
+    </form>
+    {% if settings.subdomain %}
+    <p style="font-size:0.85rem; color:#1d7a4c; margin-top:0.5rem;">
+        Currently set to <b>{{ settings.subdomain }}</b>. Leave the field blank and save to remove it.
+    </p>
+    {% endif %}
 </div>
 
 <div class="card" style="max-width:520px;">
