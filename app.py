@@ -25,11 +25,12 @@ from db import (
     recompute_attendance, attendance_percentage,
     generate_teacher_comment, generate_principal_comment,
     CLASS_CATEGORIES, MATERIAL_KINDS, format_dmy, STAFF_ATTENDANCE_STATUSES,
-    PDF_FONT_CHOICES, WEB_FONTS,
+    PDF_FONT_CHOICES, WEB_FONTS, generate_activation_code, current_activation_code_status,
+    verify_activation_code,
 )
 import datetime
 from pdf_utils import build_broadsheet_pdf, build_result_pdf, build_class_results_pdf, build_cumulative_result_pdf, build_generic_table_pdf
-from email_utils import send_email
+from email_utils import send_email, send_platform_email
 from reports import build_csv, build_xlsx
 
 ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
@@ -106,6 +107,17 @@ def _check_csrf():
 
 
 app.jinja_env.filters["dmy"] = format_dmy
+
+
+@app.route("/csrf-token")
+def csrf_token_endpoint():
+    """Used by the offline-queue script to fetch a fresh, valid token right
+    before replaying a queued submission — the token captured when the
+    form was originally filled out (possibly while offline, possibly much
+    earlier) may no longer match the session by the time it syncs."""
+    if "user_id" not in session and "student_id" not in session and "platform_admin_id" not in session:
+        return {"error": "not logged in"}, 401
+    return {"csrf_token": get_csrf_token()}
 
 
 # ---------- rate limiting ----------
@@ -192,6 +204,21 @@ def _load_portal_school():
 @app.context_processor
 def inject_portal_school():
     return dict(portal_school=g.get("portal_school"))
+
+
+@app.before_request
+def _check_force_logout():
+    school_id = session.get("school_id")
+    login_time = session.get("login_time")
+    if school_id and login_time and ("user_id" in session or "student_id" in session):
+        conn = get_db()
+        row = conn.execute("SELECT force_logout_at FROM schools WHERE id=?", (school_id,)).fetchone()
+        conn.close()
+        if row and row["force_logout_at"] and login_time <= row["force_logout_at"]:
+            session.clear()
+            flash("You've been signed out by your school administrator. Please log in again.", "error")
+            return redirect(url_for("login"))
+    return None
 
 
 @app.route("/portal-logo/<int:school_id>")
@@ -468,6 +495,12 @@ def login():
         if user and check_password_hash(user["password_hash"], password):
             school = get_school(conn, user["school_id"])
             conn.close()
+            if school and school["activation_status"] != "active":
+                flash("This school hasn't been activated yet. Enter your activation code on the Activate School page.", "error")
+                return render_template("login.html")
+            if school and school["is_archived"]:
+                flash("This school's account has been archived. Contact the platform administrator.", "error")
+                return render_template("login.html")
             if school and school["is_suspended"]:
                 flash("This school's account has been suspended. Contact the platform administrator.", "error")
                 return render_template("login.html")
@@ -479,6 +512,7 @@ def login():
             session["role"] = user["role"]
             session["position"] = user["position"]
             session["school_id"] = user["school_id"]
+            session["login_time"] = datetime.datetime.utcnow().isoformat(timespec="seconds")
             return redirect(url_for("dashboard"))
         conn.close()
         flash("Invalid username or password.", "error")
@@ -541,6 +575,7 @@ POSITION_CHOICES = [
 def register_school():
     if request.method == "POST":
         school_name = request.form.get("school_name", "").strip()
+        registered_email = request.form.get("registered_email", "").strip()
         name = request.form.get("name", "").strip()
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -551,6 +586,8 @@ def register_school():
         errors = []
         if not school_name or not name or not username or not password:
             errors.append("Please fill in the school name, your name, username, and password.")
+        if not registered_email or "@" not in registered_email or "." not in registered_email.split("@")[-1]:
+            errors.append("Please provide a valid email address for the school.")
         if len(password) < 6:
             errors.append("Password must be at least 6 characters.")
         if password != confirm:
@@ -565,7 +602,8 @@ def register_school():
 
         conn = get_db()
         try:
-            cur = conn.execute("INSERT INTO schools (name) VALUES (?)", (school_name,))
+            cur = conn.execute("INSERT INTO schools (name, registered_email) VALUES (?,?)",
+                                (school_name, registered_email))
             school_id = cur.lastrowid
             conn.execute(
                 "INSERT INTO users (school_id, name, username, password_hash, role, security_question, security_answer_hash) "
@@ -791,6 +829,7 @@ def admin_school():
             logo_align = "center"
         auto_teacher_comment = 1 if request.form.get("auto_teacher_comment") else 0
         auto_principal_comment = 1 if request.form.get("auto_principal_comment") else 0
+        show_result_date = 1 if request.form.get("show_result_date") else 0
         web_font = request.form.get("web_font", "system")
         if web_font not in WEB_FONTS:
             web_font = "system"
@@ -802,8 +841,9 @@ def admin_school():
         else:
             conn.execute(
                 "UPDATE schools SET name=?, logo_align=?, auto_teacher_comment=?, auto_principal_comment=?, "
-                "web_font=?, pdf_font=? WHERE id=?",
-                (name, logo_align, auto_teacher_comment, auto_principal_comment, web_font, pdf_font, school_id),
+                "web_font=?, pdf_font=?, show_result_date=? WHERE id=?",
+                (name, logo_align, auto_teacher_comment, auto_principal_comment, web_font, pdf_font,
+                 show_result_date, school_id),
             )
             conn.commit()
             flash("School profile updated.", "success")
@@ -2820,16 +2860,15 @@ def build_result_data(conn, student_id, term_id):
     school = get_school(conn, school_id)
     if school and (school["auto_teacher_comment"] or school["auto_principal_comment"]):
         _, remark = grade_for(average, conn, school_id)
-        name = student_full_name(student)
         info = dict(info_row) if info_row else {
             "days_school_opened": None, "days_present": None, "days_absent": None,
             "teacher_signed_date": None, "principal_signed_date": None,
             "teacher_comment": None, "principal_comment": None,
         }
         if school["auto_teacher_comment"]:
-            info["teacher_comment"] = generate_teacher_comment(name, remark, average, subjects_written)
+            info["teacher_comment"] = generate_teacher_comment(remark, average, subjects_written)
         if school["auto_principal_comment"]:
-            info["principal_comment"] = generate_principal_comment(name, remark, average, subjects_written)
+            info["principal_comment"] = generate_principal_comment(remark, average, subjects_written)
 
     ratings = conn.execute(
         "SELECT st.name, st.category, r.rating FROM student_skill_ratings r "
@@ -2844,6 +2883,7 @@ def build_result_data(conn, student_id, term_id):
         "position": my_row["position"] if my_row else "-",
         "class_size": class_size, "info": info, "ratings": ratings,
         "subjects_written": subjects_written,
+        "result_date": format_dmy(datetime.date.today().isoformat()) if school and school["show_result_date"] else None,
     }
 
 
@@ -3499,6 +3539,15 @@ def report_staff_attendance(fmt=None):
     return _send_report(fmt, "Staff Attendance", headers, rows, fname, subtitle=f"{format_dmy(start)} to {format_dmy(end)}")
 
 
+@app.route("/offline")
+@login_required()
+def offline_queue_page():
+    """The queue itself lives in this browser's localStorage, not the
+    server — this page is just the JS-rendered view onto it, so it works
+    the same regardless of which staff member's device it is."""
+    return render_template("offline_queue.html")
+
+
 # ---------- reports & analytics ----------
 
 @app.route("/reports")
@@ -3714,6 +3763,12 @@ def student_login():
             class_row = conn.execute("SELECT school_id FROM classes WHERE id=?", (student["class_id"],)).fetchone()
             school = get_school(conn, class_row["school_id"]) if class_row else None
             conn.close()
+            if school and school["activation_status"] != "active":
+                flash("This school hasn't been activated yet.", "error")
+                return render_template("student_login.html")
+            if school and school["is_archived"]:
+                flash("This school's account has been archived. Contact the platform administrator.", "error")
+                return render_template("student_login.html")
             if school and school["is_suspended"]:
                 flash("This school's account has been suspended. Contact the platform administrator.", "error")
                 return render_template("student_login.html")
@@ -3724,6 +3779,7 @@ def student_login():
             session["student_id"] = student["id"]
             session["role"] = "student"
             session["school_id"] = school["id"] if school else None
+            session["login_time"] = datetime.datetime.utcnow().isoformat(timespec="seconds")
             return redirect(url_for("student_dashboard"))
         conn.close()
         flash("Invalid username or password.", "error")
@@ -4002,8 +4058,200 @@ def platform_schools():
         "(SELECT COUNT(*) FROM students st JOIN classes c ON c.id=st.class_id WHERE c.school_id=s.id AND st.is_active=1) as student_count "
         "FROM schools s ORDER BY s.name"
     ).fetchall()
+    code_status = {s["id"]: current_activation_code_status(conn, s["id"]) for s in schools}
     conn.close()
-    return render_template("platform_schools.html", schools=schools)
+    return render_template("platform_schools.html", schools=schools, code_status=code_status)
+
+
+@app.route("/platform/schools/new", methods=["GET", "POST"])
+@platform_admin_required
+def platform_new_school():
+    if request.method == "POST":
+        school_name = request.form.get("school_name", "").strip()
+        registered_email = request.form.get("registered_email", "").strip()
+        admin_name = request.form.get("admin_name", "").strip()
+        admin_username = request.form.get("admin_username", "").strip()
+
+        errors = []
+        if not school_name or not registered_email or not admin_name or not admin_username:
+            errors.append("Please fill in every field.")
+        if registered_email and ("@" not in registered_email or "." not in registered_email.split("@")[-1]):
+            errors.append("Please provide a valid school email address.")
+        if errors:
+            for e in errors:
+                flash(e, "error")
+            return render_template("platform_new_school.html")
+
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                "INSERT INTO schools (name, registered_email, activation_status) VALUES (?,?,'pending')",
+                (school_name, registered_email),
+            )
+            school_id = cur.lastrowid
+            # No usable password yet — the School Admin sets a real one during activation.
+            placeholder_hash = generate_password_hash(secrets.token_urlsafe(32))
+            conn.execute(
+                "INSERT INTO users (school_id, name, username, password_hash, role) VALUES (?,?,?,?, 'admin')",
+                (school_id, admin_name, admin_username, placeholder_hash),
+            )
+            code, expires_at = generate_activation_code(conn, school_id, created_by=session.get("platform_admin_name"))
+            log_audit(conn, "platform_admin", session.get("platform_admin_name"), "onboard_school",
+                      details=f"Onboarded '{school_name}' ({registered_email})", school_id=school_id)
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            conn.rollback()
+            conn.close()
+            if "users.username" in str(e):
+                flash("That admin username is already taken — please choose another.", "error")
+            else:
+                flash(f"Couldn't create the school: {e}", "error")
+            return render_template("platform_new_school.html")
+
+        sent, msg = send_platform_email(
+            registered_email, f"Activate {school_name} on School Result System",
+            f"Your school has been onboarded.\n\nActivation code: {code}\n"
+            f"This code expires {format_dmy(expires_at)} and can only be used once.\n\n"
+            f"Visit the Activate School page and enter this code (with admin username '{admin_username}') "
+            "to finish setting up your account.",
+        )
+        conn.close()
+        flash(f"'{school_name}' onboarded. Activation code: {code} (expires {format_dmy(expires_at)}).", "success")
+        if not sent:
+            flash(f"Couldn't email the code automatically ({msg}) — share the code above with the school directly.", "error")
+        return redirect(url_for("platform_schools"))
+
+    return render_template("platform_new_school.html")
+
+
+@app.route("/platform/schools/<int:school_id>/regenerate_code", methods=["POST"])
+@platform_admin_required
+def platform_regenerate_code(school_id):
+    conn = get_db()
+    school = get_school(conn, school_id)
+    if not school:
+        conn.close()
+        flash("School not found.", "error")
+        return redirect(url_for("platform_schools"))
+    code, expires_at = generate_activation_code(conn, school_id, created_by=session.get("platform_admin_name"))
+    log_audit(conn, "platform_admin", session.get("platform_admin_name"), "regenerate_activation_code",
+              details=f"Regenerated code for '{school['name']}'", school_id=school_id)
+    conn.commit()
+    sent, msg = (False, "No registered email on file.")
+    if school["registered_email"]:
+        sent, msg = send_platform_email(
+            school["registered_email"], f"New activation code for {school['name']}",
+            f"A new activation code has been issued: {code}\nThis code expires {format_dmy(expires_at)} "
+            "and invalidates any previous code.",
+        )
+    conn.close()
+    flash(f"New activation code: {code} (expires {format_dmy(expires_at)}).", "success")
+    if not sent:
+        flash(f"Couldn't email the code automatically ({msg}) — share the code above with the school directly.", "error")
+    return redirect(url_for("platform_schools"))
+
+
+@app.route("/platform/schools/<int:school_id>/archive", methods=["POST"])
+@platform_admin_required
+def platform_archive_school(school_id):
+    conn = get_db()
+    school = get_school(conn, school_id)
+    if school:
+        conn.execute("UPDATE schools SET is_archived=1 WHERE id=?", (school_id,))
+        log_audit(conn, "platform_admin", session.get("platform_admin_name"), "archive_school",
+                  details=f"Archived '{school['name']}'", school_id=school_id)
+        conn.commit()
+        flash(f"'{school['name']}' has been archived. Its staff and students can no longer log in.", "success")
+    conn.close()
+    return redirect(url_for("platform_schools"))
+
+
+@app.route("/platform/schools/<int:school_id>/unarchive", methods=["POST"])
+@platform_admin_required
+def platform_unarchive_school(school_id):
+    conn = get_db()
+    school = get_school(conn, school_id)
+    if school:
+        conn.execute("UPDATE schools SET is_archived=0 WHERE id=?", (school_id,))
+        log_audit(conn, "platform_admin", session.get("platform_admin_name"), "unarchive_school",
+                  details=f"Unarchived '{school['name']}'", school_id=school_id)
+        conn.commit()
+        flash(f"'{school['name']}' has been unarchived.", "success")
+    conn.close()
+    return redirect(url_for("platform_schools"))
+
+
+@app.route("/platform/schools/<int:school_id>/force_logout", methods=["POST"])
+@platform_admin_required
+def platform_force_logout_school(school_id):
+    conn = get_db()
+    school = get_school(conn, school_id)
+    if school:
+        conn.execute("UPDATE schools SET force_logout_at=? WHERE id=?",
+                     (datetime.datetime.utcnow().isoformat(timespec="seconds"), school_id))
+        log_audit(conn, "platform_admin", session.get("platform_admin_name"), "force_logout_school",
+                  details=f"Forced logout for all of '{school['name']}'s users", school_id=school_id)
+        conn.commit()
+        flash(f"All of '{school['name']}'s staff and students will be signed out on their next action.", "success")
+    conn.close()
+    return redirect(url_for("platform_schools"))
+
+
+@app.route("/activate", methods=["GET", "POST"])
+@rate_limit(max_attempts=8, window_seconds=600)
+def activate_school():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        code = request.form.get("code", "").strip()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm_password", "")
+
+        conn = get_db()
+        user = conn.execute("SELECT * FROM users WHERE username=? AND role='admin'", (username,)).fetchone()
+        if not user:
+            conn.close()
+            flash("No pending school admin account found with that username.", "error")
+            return render_template("activate.html")
+        school = get_school(conn, user["school_id"])
+        if school["activation_status"] == "active":
+            conn.close()
+            flash("This school is already active — please log in instead.", "error")
+            return redirect(url_for("login"))
+        if len(password) < 6:
+            conn.close()
+            flash("Password must be at least 6 characters.", "error")
+            return render_template("activate.html")
+        if password != confirm:
+            conn.close()
+            flash("Password and confirmation don't match.", "error")
+            return render_template("activate.html")
+
+        ok, reason = verify_activation_code(conn, school["id"], code)
+        if not ok:
+            conn.close()
+            flash(reason, "error")
+            return render_template("activate.html")
+
+        conn.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(password), user["id"]))
+        conn.execute(
+            "UPDATE schools SET activation_status='active', activated_at=? WHERE id=?",
+            (datetime.datetime.utcnow().isoformat(timespec="seconds"), school["id"]),
+        )
+        log_audit(conn, "admin", user["name"], "school_activated", details=f"'{school['name']}' activated", school_id=school["id"])
+        conn.commit()
+        conn.close()
+
+        session.clear()
+        session["user_id"] = user["id"]
+        session["name"] = user["name"]
+        session["role"] = user["role"]
+        session["position"] = user["position"]
+        session["school_id"] = user["school_id"]
+        session["login_time"] = datetime.datetime.utcnow().isoformat(timespec="seconds")
+        flash(f"Welcome! '{school['name']}' is now active — you can finish setting up your school profile.", "success")
+        return redirect(url_for("admin_school"))
+
+    return render_template("activate.html")
 
 
 @app.route("/platform/schools/export")
@@ -4021,10 +4269,14 @@ def platform_schools_export():
     ).fetchall()
     conn.close()
 
-    headers = ["School", "Status", "Admins", "Teachers", "Classes", "Students", "Created"]
+    headers = ["School ID", "School", "Registered Email", "Activation Status", "Account Status",
+               "Admins", "Teachers", "Classes", "Students", "Date Registered", "Date Activated"]
     rows = [
-        [s["name"], "Suspended" if s["is_suspended"] else "Active", s["admin_count"],
-         s["teacher_count"], s["class_count"], s["student_count"], format_dmy(s["created_at"])]
+        [s["id"], s["name"], s["registered_email"] or "-",
+         "Active" if s["activation_status"] == "active" else "Pending",
+         "Archived" if s["is_archived"] else ("Suspended" if s["is_suspended"] else "Active"),
+         s["admin_count"], s["teacher_count"], s["class_count"], s["student_count"],
+         format_dmy(s["created_at"]), format_dmy(s["activated_at"]) if s["activated_at"] else "-"]
         for s in schools
     ]
     return _send_report(fmt, "Schools", headers, rows, "platform_schools_summary")

@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS schools (
     web_font TEXT DEFAULT 'system',
     pdf_font TEXT DEFAULT 'Helvetica',
     subdomain TEXT,
+    show_result_date INTEGER DEFAULT 0,
+    registered_email TEXT,
+    activation_status TEXT DEFAULT 'active',
+    activated_at TEXT,
+    is_archived INTEGER DEFAULT 0,
+    force_logout_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -323,6 +329,20 @@ CREATE TABLE IF NOT EXISTS staff_attendance (
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_school_date ON staff_attendance(school_id, date);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_subdomain ON schools(subdomain) WHERE subdomain IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS activation_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    school_id INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    invalidated INTEGER DEFAULT 0,
+    created_by TEXT,
+    FOREIGN KEY(school_id) REFERENCES schools(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_activation_codes_school ON activation_codes(school_id);
 
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL

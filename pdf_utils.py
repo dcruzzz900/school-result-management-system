@@ -123,6 +123,11 @@ def _result_elements(data, term, school_name, logo_path, student_full_name, styl
         f"{term['session_name']} &mdash; {term['name']}",
         styles,
     )
+    if data.get("result_date"):
+        elements.append(Paragraph(f"Date: {data['result_date']}", ParagraphStyle(
+            "resultDate", parent=styles["Normal"], alignment=TA_CENTER, fontSize=9, textColor=colors.grey,
+        )))
+        elements.append(Spacer(1, 0.2 * cm))
 
     info_table = Table([
         ["Name:", name, "Adm./Reg. No.:", student["admission_no"]],

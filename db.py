@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import datetime as _dt
+import secrets as _secrets
 from werkzeug.security import generate_password_hash
 
 INSTANCE_DIR = os.path.join(os.path.dirname(__file__), "instance")
@@ -465,6 +466,45 @@ def migration_021_school_subdomain(conn):
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_subdomain ON schools(subdomain) WHERE subdomain IS NOT NULL")
 
 
+def migration_022_result_date_toggle(conn):
+    """Per-school 'Show Automatic Date on Result' toggle: when on, the
+    current date (in the system's DD/MM/YYYY format) is stamped on the
+    printed/downloaded result. When off, no automatic date appears there
+    — this is separate from the dashboard's live clock, which must never
+    itself appear on a printed/downloaded result."""
+    ensure_column(conn, "schools", "show_result_date", "INTEGER DEFAULT 0")
+
+
+def migration_023_school_activation(conn):
+    """New-school onboarding via Super Admin: a school starts 'pending'
+    until its School Admin enters a time-limited, single-use 6-digit code
+    (sent to the school's registered email and/or shown to the Super
+    Admin) on the public activation page. Also adds an 'archived' status
+    distinct from suspension, and a force-logout timestamp so the Super
+    Admin can invalidate a school's active sessions without a server-side
+    session store — any session whose login predates this timestamp is
+    treated as stale and signed out on its next request."""
+    ensure_column(conn, "schools", "registered_email", "TEXT")
+    ensure_column(conn, "schools", "activation_status", "TEXT DEFAULT 'active'")
+    ensure_column(conn, "schools", "activated_at", "TEXT")
+    ensure_column(conn, "schools", "is_archived", "INTEGER DEFAULT 0")
+    ensure_column(conn, "schools", "force_logout_at", "TEXT")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS activation_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            invalidated INTEGER DEFAULT 0,
+            created_by TEXT,
+            FOREIGN KEY(school_id) REFERENCES schools(id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_codes_school ON activation_codes(school_id)")
+
+
 MIGRATIONS = [
     migration_001_baseline,
     migration_002_multi_school,
@@ -487,6 +527,8 @@ MIGRATIONS = [
     migration_019_staff_attendance,
     migration_020_font_customization,
     migration_021_school_subdomain,
+    migration_022_result_date_toggle,
+    migration_023_school_activation,
 ]
 
 
@@ -640,6 +682,62 @@ WEB_FONTS = {
 }
 
 
+ACTIVATION_CODE_EXPIRY_HOURS = 48
+
+
+def generate_activation_code(conn, school_id, created_by=None, expiry_hours=ACTIVATION_CODE_EXPIRY_HOURS):
+    """Invalidates any still-valid code for this school and issues a new
+    one — regenerating always supersedes the old code, per spec, rather
+    than letting two codes be valid at once."""
+    conn.execute(
+        "UPDATE activation_codes SET invalidated=1 WHERE school_id=? AND used_at IS NULL AND invalidated=0",
+        (school_id,),
+    )
+    code = f"{_secrets.randbelow(1000000):06d}"
+    expires_at = (_dt.datetime.utcnow() + _dt.timedelta(hours=expiry_hours)).isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT INTO activation_codes (school_id, code, expires_at, created_by) VALUES (?,?,?,?)",
+        (school_id, code, expires_at, created_by),
+    )
+    return code, expires_at
+
+
+def current_activation_code_status(conn, school_id):
+    """The most recent code issued for a school, and whether it's still
+    usable — used to show 'Activation-code status' on the Super Admin
+    dashboard without exposing the code itself once issued."""
+    row = conn.execute(
+        "SELECT * FROM activation_codes WHERE school_id=? ORDER BY id DESC LIMIT 1", (school_id,)
+    ).fetchone()
+    if not row:
+        return "none"
+    if row["used_at"]:
+        return "used"
+    if row["invalidated"]:
+        return "invalidated"
+    if row["expires_at"] < _dt.datetime.utcnow().isoformat(timespec="seconds"):
+        return "expired"
+    return "valid"
+
+
+def verify_activation_code(conn, school_id, submitted_code):
+    """Single-use, time-limited, school-specific check. Returns (ok, reason)."""
+    row = conn.execute(
+        "SELECT * FROM activation_codes WHERE school_id=? AND used_at IS NULL AND invalidated=0 "
+        "ORDER BY id DESC LIMIT 1",
+        (school_id,),
+    ).fetchone()
+    if not row:
+        return False, "No active activation code for this school. Ask the Super Admin to issue one."
+    if row["expires_at"] < _dt.datetime.utcnow().isoformat(timespec="seconds"):
+        return False, "This activation code has expired. Ask the Super Admin to regenerate it."
+    if submitted_code.strip() != row["code"]:
+        return False, "Incorrect activation code."
+    conn.execute("UPDATE activation_codes SET used_at=? WHERE id=?",
+                 (_dt.datetime.utcnow().isoformat(timespec="seconds"), row["id"]))
+    return True, "ok"
+
+
 def get_school(conn, school_id):
     return conn.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
 
@@ -680,39 +778,47 @@ def attendance_percentage(present, opened):
 # "Excellent", "Fail") so auto-generated comments always match whatever
 # grading system (Nigerian, British, or custom) the school has configured
 # — the same remark text that already drives per-subject grades.
-_TEACHER_COMMENT_BANK = {
-    "excellent": "{name} has performed excellently this term, applying themselves consistently across all subjects. Keep up the outstanding work.",
-    "very good": "{name} turned in a very good performance this term and shows real commitment to their studies.",
-    "good": "{name} had a good term overall. With a little more consistency, even better results are within reach.",
-    "fair": "{name}'s performance this term was fair. More effort and regular practice will help raise the results.",
-    "pass": "{name} managed to pass this term but needs to put in significantly more effort going forward.",
-    "fail": "{name} struggled this term and did not meet the pass mark. Extra support and closer supervision at home are strongly recommended.",
-}
-_PRINCIPAL_COMMENT_BANK = {
-    "excellent": "An excellent result. {name} is commended for this level of performance and should be encouraged to keep it up.",
-    "very good": "A very good result this term. {name} is doing well and should keep striving for the very best.",
-    "good": "A good result. {name} is capable of even more with greater consistency and effort.",
-    "fair": "A fair result. {name} needs to devote more time and attention to studies next term.",
-    "pass": "{name} has passed, but a much greater commitment to studies is required going forward.",
-    "fail": "This is a poor result. Parents/guardians are urged to give {name} closer supervision and support at home.",
+# Auto-generated comments are intentionally brief, name-free, and mapped
+# by the school's own grade-scale "remark" (e.g. "Excellent", "Fail") so
+# they always match whatever grading system (Nigerian, British, or
+# custom) the school has configured — the same remark text that already
+# drives per-subject grades. The same short comment is used for both the
+# teacher's and principal's remark; there's no separate "formal" register.
+_COMMENT_BANK = {
+    "excellent": "Excellent performance. Keep it up.",
+    "very good": "Very good performance. Keep it up.",
+    "good": "Good performance. More effort is encouraged.",
+    "fair": "Satisfactory performance. There is room for improvement.",
+    "pass": "Needs more effort and consistent study.",
+    "fail": "Significant improvement is needed.",
 }
 
 
-def _bank_comment(bank, name, remark, average, subjects_written):
+def _bank_comment(remark, average, subjects_written):
     if not subjects_written:
-        return f"{name} has no scores recorded for this term yet."
-    text = bank.get((remark or "").strip().lower())
+        return "No scores recorded yet for this term."
+    text = _COMMENT_BANK.get((remark or "").strip().lower())
     if text:
-        return text.format(name=name)
-    return f"{name} attained an average of {average:.1f}% this term."
+        return text
+    if average >= 70:
+        return _COMMENT_BANK["excellent"]
+    if average >= 60:
+        return _COMMENT_BANK["very good"]
+    if average >= 50:
+        return _COMMENT_BANK["good"]
+    if average >= 45:
+        return _COMMENT_BANK["fair"]
+    if average >= 40:
+        return _COMMENT_BANK["pass"]
+    return _COMMENT_BANK["fail"]
 
 
-def generate_teacher_comment(name, remark, average, subjects_written):
-    return _bank_comment(_TEACHER_COMMENT_BANK, name, remark, average, subjects_written)
+def generate_teacher_comment(remark, average, subjects_written):
+    return _bank_comment(remark, average, subjects_written)
 
 
-def generate_principal_comment(name, remark, average, subjects_written):
-    return _bank_comment(_PRINCIPAL_COMMENT_BANK, name, remark, average, subjects_written)
+def generate_principal_comment(remark, average, subjects_written):
+    return _bank_comment(remark, average, subjects_written)
 
 
 POSITION_LABELS = {

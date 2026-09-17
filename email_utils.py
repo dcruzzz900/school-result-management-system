@@ -8,7 +8,52 @@ exposes standard SMTP credentials. See DEPLOY_PYTHONANYWHERE.md for details.
 """
 import smtplib
 import ssl
+import os
 from email.message import EmailMessage
+
+
+def send_platform_email(to_email, subject, body_text):
+    """Sends an email using the platform's own SMTP credentials (set via
+    environment variables), not any individual school's — used for things
+    like activation codes, which must go out before a school has any SMTP
+    settings of its own to send from. Returns (success: bool, message: str)
+    with the same shape as send_email, so callers can handle both the same
+    way: if this isn't configured, the caller is expected to still show
+    the info on-screen rather than silently failing."""
+    host = os.environ.get("PLATFORM_SMTP_HOST", "").strip()
+    from_email = os.environ.get("PLATFORM_SMTP_FROM_EMAIL", "").strip()
+    if not host or not from_email:
+        return False, "Platform email isn't configured (PLATFORM_SMTP_* environment variables)."
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    from_name = os.environ.get("PLATFORM_SMTP_FROM_NAME", "School Result System")
+    msg["From"] = f"{from_name} <{from_email}>"
+    msg["To"] = to_email
+    msg.set_content(body_text)
+
+    port = int(os.environ.get("PLATFORM_SMTP_PORT", "587"))
+    username = os.environ.get("PLATFORM_SMTP_USERNAME", "")
+    password = os.environ.get("PLATFORM_SMTP_PASSWORD", "")
+    use_tls = os.environ.get("PLATFORM_SMTP_USE_TLS", "1") == "1"
+
+    try:
+        if port == 465:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(host, port, timeout=15, context=context) as server:
+                if username:
+                    server.login(username, password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=15) as server:
+                if use_tls:
+                    server.starttls(context=ssl.create_default_context())
+                if username:
+                    server.login(username, password)
+                server.send_message(msg)
+        return True, "Sent."
+    except Exception as e:
+        return False, f"Couldn't send platform email: {e}"
 
 
 def send_email(school, to_email, subject, body_text, attachment_bytes=None, attachment_filename=None):
