@@ -67,6 +67,14 @@ def _get_or_create_secret_key():
 
 app.secret_key = os.environ.get("SECRET_KEY") or _get_or_create_secret_key()
 
+# A non-permanent Flask session cookie disappears when the browser process
+# ends — on a PWA/"Add to Home Screen" app that can mean losing login after
+# just being backgrounded for a while. That defeats offline use: staff need
+# to stay logged in through a multi-day stretch with no connection so their
+# queued offline entries still have a valid session to sync against once
+# they're back online. session.permanent is set at login (see login()).
+app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(days=30)
+
 # Make sure the database exists and is migrated, whether this file is run
 # directly (python app.py) or imported by a production server (e.g. the
 # WSGI file on PythonAnywhere, or gunicorn).
@@ -507,6 +515,7 @@ def login():
             if g.portal_school and (not school or school["id"] != g.portal_school["id"]):
                 flash(f"That account isn't registered under {g.portal_school['name']}'s portal.", "error")
                 return render_template("login.html")
+            session.permanent = True
             session["user_id"] = user["id"]
             session["name"] = user["name"]
             session["role"] = user["role"]

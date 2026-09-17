@@ -6,17 +6,32 @@ database in place with **zero data loss**.
 
 ## What's new in this update
 
-- **"Clear Demo Data" is back** as a lighter option alongside "Delete
-  Account" in **Settings**. It wipes just the sample classes, subjects,
-  students, and teachers so you can load your real school's data on a clean
-  slate — your login, sessions/terms, grading setup, and skill traits are
-  all kept. This is different from Delete Account, which permanently
-  removes your *entire* school.
-- Fixed a small gap: clearing demo data now also cleans up the academic
-  history (enrollment) records tied to the removed students, which was
-  missed when that table was added in a recent update.
-- This action is now recorded in the audit log, same as other account-level
-  changes.
+Fully wires up offline data entry so staff can keep working with no
+connection and have it sync automatically once they're back online.
+
+- **Pages now open while fully offline.** Previously, only form
+  *submissions* were queued while offline — but if you opened Score Entry,
+  Roll Call, or any admin form fresh with zero connectivity, you'd just see
+  a "please reconnect" message instead of the form. Now, any page that's
+  been opened once while online is cached and can be reopened offline after
+  that, with the data as it was at last load.
+- **Logins now last 30 days** instead of ending whenever the browser or
+  app is closed. This matters for offline use — without it, a teacher who's
+  offline for a stretch (weekend, poor signal for a few days) could get
+  logged out, and their queued offline entries would fail to sync silently
+  once back online, with no login screen to tell them why.
+- No changes to the offline queue itself (Score Entry, Roll Call, Update
+  Comments/Attendance, and the admin add/edit forms) — that queuing and
+  auto-sync was already working; this update makes sure the pages behind it
+  are actually reachable offline too.
+
+**One inherent limit worth knowing:** a page has to be opened at least once
+while online before it can be opened offline. There's no way around this —
+the device has to receive the page from the server before it can show it
+without one. So the recommended habit for staff: open your Score Entry and
+Roll Call pages for your usual classes once while you still have signal
+(e.g. at the start of the term), and they'll stay available offline from
+then on.
 
 ## Steps
 
@@ -47,8 +62,17 @@ database in place with **zero data loss**.
    pip install -r requirements.txt
    ```
 7. Go to the **Web** tab and click the big green **Reload** button.
-8. Open your site, log in, and check **Settings** for the restored "Clear
-   Demo Data" option.
+8. On a phone that already has this app installed/bookmarked, do a full
+   refresh once (pull-to-refresh or close and reopen the tab/app) so it
+   picks up the new service worker — it auto-updates in the background
+   otherwise, just not instantly.
+9. While still online, open Score Entry and Roll Call for each class staff
+   will need, so those pages get cached for offline use.
+10. Test it: turn on Airplane Mode, open a previously-visited Score Entry
+    or Roll Call page, make an entry, and save. You should see a "Saved
+    offline" toast. Turn Airplane Mode back off and either wait a moment or
+    visit **Offline Queue** (in Settings) and tap **Sync Now** — the entry
+    should disappear from the queue once it's synced.
 
 If anything looks off after reloading, check the **Error log** link on the
 Web tab and paste me what it says.
