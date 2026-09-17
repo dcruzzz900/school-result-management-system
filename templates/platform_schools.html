@@ -3,42 +3,95 @@
 {% block content %}
 <h1>Schools</h1>
 <div class="no-print" style="margin-bottom:1rem;">
+    <a class="btn btn-small btn-gold" href="{{ url_for('platform_new_school') }}">+ Onboard a School</a>
     <a class="btn btn-small" href="{{ url_for('platform_schools_export', format='csv') }}">Export CSV</a>
-    <a class="btn btn-small btn-gold" href="{{ url_for('platform_schools_export', format='xlsx') }}">Export Excel</a>
+    <a class="btn btn-small" href="{{ url_for('platform_schools_export', format='xlsx') }}">Export Excel</a>
 </div>
-<div class="card">
+<div class="card" style="overflow-x:auto;">
     <table>
-        <tr><th>Name</th><th>Status</th><th>Admins</th><th>Teachers</th><th>Classes</th><th>Students</th><th>Actions</th></tr>
+        <tr>
+            <th>ID</th><th>School</th><th>Registered Email</th><th>Activation</th><th>Account</th>
+            <th>Code</th><th>Registered</th><th>Activated</th><th>Actions</th>
+        </tr>
         {% for s in schools %}
         <tr>
+            <td>{{ s.id }}</td>
             <td>{{ s.name }}</td>
-            <td>{% if s.is_suspended %}<span class="badge" style="background:#b3261e;">Suspended</span>{% else %}<span class="badge" style="background:#1d7a4c;">Active</span>{% endif %}</td>
-            <td>{{ s.admin_count }}</td>
-            <td>{{ s.teacher_count }}</td>
-            <td>{{ s.class_count }}</td>
-            <td>{{ s.student_count }}</td>
+            <td>{{ s.registered_email or '—' }}</td>
+            <td>
+                {% if s.activation_status == 'active' %}
+                <span class="badge" style="background:#1d7a4c;">Active</span>
+                {% else %}
+                <span class="badge" style="background:#c99a2e;">Pending</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if s.is_archived %}
+                <span class="badge" style="background:#666;">Archived</span>
+                {% elif s.is_suspended %}
+                <span class="badge" style="background:#b3261e;">Suspended</span>
+                {% else %}
+                <span class="badge" style="background:#1d7a4c;">Active</span>
+                {% endif %}
+            </td>
+            <td style="font-size:0.85rem;">
+                {{ {'none': '—', 'valid': 'Valid', 'used': 'Used', 'expired': 'Expired', 'invalidated': 'Invalidated'}[code_status.get(s.id, 'none')] }}
+            </td>
+            <td style="font-size:0.85rem;">{{ s.created_at|dmy }}</td>
+            <td style="font-size:0.85rem;">{{ s.activated_at|dmy if s.activated_at else '—' }}</td>
             <td style="white-space:nowrap;">
                 {% if s.is_suspended %}
                 <form method="POST" action="{{ url_for('platform_activate_school', school_id=s.id) }}" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="btn btn-small" type="submit">Activate</button>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-small" type="submit">Reactivate</button>
                 </form>
                 {% else %}
                 <form method="POST" action="{{ url_for('platform_suspend_school', school_id=s.id) }}" class="inline"
                       onsubmit="return confirm('Suspend {{ s.name }}? Their staff and students will be unable to log in until reactivated.');">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-small" style="background:#b3261e;" type="submit">Suspend</button>
                 </form>
                 {% endif %}
-                <button class="btn btn-small" type="button" onclick="document.getElementById('delete_{{ s.id }}').classList.toggle('hidden-row')">Delete</button>
+                <button class="btn btn-small" type="button" onclick="document.getElementById('more_{{ s.id }}').classList.toggle('hidden-row')">More</button>
+            </td>
+        </tr>
+        <tr id="more_{{ s.id }}" class="hidden-row">
+            <td colspan="9">
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; padding:0.5rem 0;">
+                    <form method="POST" action="{{ url_for('platform_regenerate_code', school_id=s.id) }}" class="inline"
+                          onsubmit="return confirm('Issue a new activation code for {{ s.name }}? Any previous code stops working immediately.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-small" type="submit">Regenerate Activation Code</button>
+                    </form>
+                    {% if s.is_archived %}
+                    <form method="POST" action="{{ url_for('platform_unarchive_school', school_id=s.id) }}" class="inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-small" type="submit">Unarchive</button>
+                    </form>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('platform_archive_school', school_id=s.id) }}" class="inline"
+                          onsubmit="return confirm('Archive {{ s.name }}? Their staff and students will be unable to log in.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-small" type="submit">Archive</button>
+                    </form>
+                    {% endif %}
+                    <form method="POST" action="{{ url_for('platform_force_logout_school', school_id=s.id) }}" class="inline"
+                          onsubmit="return confirm('Force logout all of {{ s.name }}\'s staff and students?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-small" type="submit">Force Logout All Users</button>
+                    </form>
+                    <a class="btn btn-small" href="{{ url_for('platform_users', school_id=s.id) }}">Reset a User's Password</a>
+                    <button class="btn btn-small" style="background:#b3261e;" type="button"
+                            onclick="document.getElementById('delete_{{ s.id }}').classList.toggle('hidden-row')">Delete</button>
+                </div>
             </td>
         </tr>
         <tr id="delete_{{ s.id }}" class="hidden-row">
-            <td colspan="7">
+            <td colspan="9">
                 <form method="POST" action="{{ url_for('platform_delete_school', school_id=s.id) }}"
                       style="display:flex; gap:0.5rem; align-items:center; padding:0.5rem 0;"
                       onsubmit="return confirm('This permanently deletes {{ s.name }} and ALL its data. This cannot be undone. Continue?');">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <label style="font-weight:normal; margin:0;">Type DELETE to confirm:</label>
                     <input type="text" name="confirm_text" placeholder="DELETE" required style="width:10rem;">
                     <button class="btn btn-small" style="background:#b3261e;" type="submit">Permanently Delete {{ s.name }}</button>

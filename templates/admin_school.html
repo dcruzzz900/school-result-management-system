@@ -53,6 +53,15 @@
                 {% if settings and settings.auto_principal_comment %}checked{% endif %}>
             Automatically Generate Principal's Comment
         </label>
+        <label style="font-weight:normal; display:flex; align-items:center; gap:0.4rem; margin-top:0.4rem;">
+            <input type="checkbox" name="show_result_date" style="width:auto;"
+                {% if settings and settings.show_result_date %}checked{% endif %}>
+            Show Automatic Date on Result
+        </label>
+        <p style="font-size:0.85rem; color:#999; margin-top:0.3rem;">
+            When on, the current date is stamped on the printed/downloaded result. This is separate
+            from the dashboard's clock, which never appears on a printed or downloaded result either way.
+        </p>
         <p style="font-size:0.85rem; color:#999; margin-top:0.3rem;">
             When on, this term's comment is generated from the student's grade/average instead of
             what's typed on the result — handy when scores come in by offline CSV and no one

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Offline Queue{% endblock %}
+{% block content %}
+<h1>Offline Queue</h1>
+<p style="color:#666; font-size:0.9rem;">
+    When you save one of the offline-capable forms (Add Student, Add Teacher, Add Class, Add
+    Subject, Assign Subjects, Enter Scores, Take Roll Call, or Update Comments) while this device
+    has no connection, it's saved here on this device and sent automatically the next time you're
+    back online. This only tracks items saved on <b>this device, in this browser</b> — it isn't
+    shared with other devices or synced anywhere until it's sent.
+</p>
+
+<div class="card">
+    <div id="connectionStatus" style="margin-bottom:0.75rem; font-size:0.9rem;"></div>
+    <button class="btn" id="syncNowBtn" type="button">Sync Now</button>
+    <div id="queueList" style="margin-top:1rem;"></div>
+</div>
+
+<script>
+function renderQueue() {
+    const list = document.getElementById('queueList');
+    const items = OfflineQueue.loadQueue();
+    if (items.length === 0) {
+        list.innerHTML = '<p style="color:#999;">Nothing pending — everything on this device has been synced.</p>';
+        return;
+    }
+    let html = '<table><tr><th>Item</th><th>Saved</th><th>Attempts</th><th>Last Error</th><th></th></tr>';
+    items.forEach(item => {
+        const saved = new Date(item.queued_at).toLocaleString();
+        html += '<tr>' +
+            '<td>' + item.label.replace(/</g, '&lt;') + '</td>' +
+            '<td>' + saved + '</td>' +
+            '<td>' + (item.attempts || 0) + '</td>' +
+            '<td style="color:#b3261e;">' + (item.lastError ? item.lastError.replace(/</g, '&lt;') : '—') + '</td>' +
+            '<td><button class="btn btn-small" style="background:#b3261e;" onclick="discardItem(\'' + item.id + '\')">Discard</button></td>' +
+            '</tr>';
+    });
+    html += '</table>';
+    list.innerHTML = html;
+}
+
+function discardItem(id) {
+    if (!confirm('Discard this offline item without sending it? This cannot be undone.')) return;
+    OfflineQueue.removeEntry(id);
+    renderQueue();
+}
+
+function updateConnectionStatus() {
+    const el = document.getElementById('connectionStatus');
+    el.innerHTML = navigator.onLine
+        ? '<span style="color:#1d7a4c;">● Online</span>'
+        : '<span style="color:#b3261e;">● Offline — items will queue here until connection returns</span>';
+}
+
+document.getElementById('syncNowBtn').addEventListener('click', async function () {
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Syncing...';
+    try {
+        const result = await OfflineQueue.syncAll();
+        alert(result.successCount + ' synced, ' + result.remainingCount + ' still pending.');
+    } catch (e) {
+        alert('Sync failed: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.textContent = 'Sync Now';
+    renderQueue();
+});
+
+window.addEventListener('online', updateConnectionStatus);
+window.addEventListener('offline', updateConnectionStatus);
+updateConnectionStatus();
+renderQueue();
+</script>
+{% endblock %}

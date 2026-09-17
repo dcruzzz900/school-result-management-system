@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Activate School{% endblock %}
+{% block content %}
+<div class="login-wrapper">
+    <div class="card">
+        <h2>Activate Your School</h2>
+        <p style="color:#666; font-size:0.9rem;">
+            Enter the admin username and 6-digit activation code you were given, and choose your password.
+        </p>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label>Admin Username</label>
+            <input type="text" name="username" required autofocus>
+            <label>Activation Code</label>
+            <input type="text" name="code" required maxlength="6" pattern="[0-9]{6}" placeholder="123456">
+            <label>Choose a Password</label>
+            <input type="password" name="password" required minlength="6">
+            <label>Confirm Password</label>
+            <input type="password" name="confirm_password" required minlength="6">
+            <button class="btn" type="submit" style="width:100%;">Activate School</button>
+        </form>
+        <p style="font-size:0.85rem; margin-top:1rem; text-align:center;">
+            <a href="{{ url_for('login') }}">Already active? Sign in</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

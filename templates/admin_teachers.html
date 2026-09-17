@@ -5,7 +5,7 @@
 
 <div class="card">
     <h3>Add a Teacher</h3>
-    <form method="POST">
+    <form method="POST" data-offline="true" data-offline-label="Add Teacher">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Full Name</label>
         <input type="text" name="name" required>

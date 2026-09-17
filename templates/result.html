@@ -6,6 +6,7 @@
     <h2 style="margin:0.2rem 0;">{{ school_name }}</h2>
     <h1>Terminal Report Sheet</h1>
     <p>{{ term.session_name }} &mdash; {{ term.name }}</p>
+    {% if result_date %}<p style="font-size:0.85rem; color:#666;">Date: {{ result_date }}</p>{% endif %}
 </div>
 
 <div class="no-print" style="margin-bottom:1rem;">
@@ -106,7 +107,8 @@
 
 <div class="card no-print">
     <h3>Update Attendance, Comments &amp; Skill Ratings</h3>
-    <form method="POST" action="{{ url_for('result_extra', student_id=student.id) }}">
+    <form method="POST" action="{{ url_for('result_extra', student_id=student.id) }}"
+          data-offline="true" data-offline-label="Update Comments/Attendance">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="term_id" value="{{ term.id }}">
         <div class="grid-2">

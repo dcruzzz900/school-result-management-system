@@ -24,7 +24,7 @@
     {% if not students %}
     <p style="color:#999;">No active students in this class yet.</p>
     {% else %}
-    <form method="POST">
+    <form method="POST" data-offline="true" data-offline-label="Take Roll Call">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="date" value="{{ date_str }}">
         <table>

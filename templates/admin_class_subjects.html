@@ -5,7 +5,7 @@
 
 <div class="card">
     <h3>New Assignment</h3>
-    <form method="POST">
+    <form method="POST" data-offline="true" data-offline-label="Assign Subject to Class">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Class</label>
         <select name="class_id" required>

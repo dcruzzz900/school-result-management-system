@@ -30,7 +30,7 @@
     <input type="text" id="studentSearch" placeholder="Type a name or Admission No. / Register No..." autocomplete="off">
 </div>
 
-<form method="POST">
+<form method="POST" data-offline="true" data-offline-label="Enter Scores">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <table id="scoreTable">
         <tr>

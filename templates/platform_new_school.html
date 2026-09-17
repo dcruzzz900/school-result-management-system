@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Onboard a School{% endblock %}
+{% block content %}
+<h1>Onboard a New School</h1>
+<p style="color:#666; font-size:0.9rem;">
+    This creates the school and its admin account in "pending" status, and issues a one-time
+    6-digit activation code. The code is emailed to the school's registered address and shown
+    to you here in case email isn't set up yet — the School Admin enters it on the
+    <a href="{{ url_for('activate_school') }}">Activate School</a> page to finish setup.
+</p>
+
+<div class="card" style="max-width:520px;">
+    <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>School Name</label>
+        <input type="text" name="school_name" required>
+
+        <label>School's Registered Email</label>
+        <input type="email" name="registered_email" required>
+
+        <label>School Admin's Full Name</label>
+        <input type="text" name="admin_name" required>
+
+        <label>School Admin's Username</label>
+        <input type="text" name="admin_username" required>
+
+        <button class="btn" type="submit" style="margin-top:1rem;">Onboard School &amp; Send Activation Code</button>
+    </form>
+</div>
+<a class="btn btn-small" href="{{ url_for('platform_schools') }}">&larr; Back to Schools</a>
+{% endblock %}
