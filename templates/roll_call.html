@@ -27,7 +27,7 @@
     <form method="POST" data-offline="true" data-offline-label="Take Roll Call">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="date" value="{{ date_str }}">
-        <table>
+        <table id="rollCallTable" data-current-class="{{ class_row.id }}">
             <tr><th>Admission No.</th><th>Student</th><th>Present</th><th>Absent</th></tr>
             {% for s in students %}
             {% set current = existing.get(s.id, 'present') %}
@@ -45,6 +45,28 @@
         </table>
         <button class="btn" type="submit" style="margin-top:1rem;">Save Roll Call for {{ date_str|dmy }}</button>
     </form>
+
+    <script>
+    // Offline data entry: a student added offline on the Students page isn't
+    // in this table yet. Add a row (defaulted to Present, same as everyone
+    // else) for any such student still pending sync into THIS class.
+    document.addEventListener('DOMContentLoaded', function () {
+        var table = document.getElementById('rollCallTable');
+        if (!table || typeof OfflineQueue === 'undefined') return;
+        var classId = table.dataset.currentClass;
+        OfflineQueue.getPendingRecords('student').forEach(function (rec) {
+            if (!rec.meta || String(rec.meta.classId) !== String(classId)) return;
+            if (table.querySelector('input[name="status_' + rec.localId + '"]')) return;
+            var tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td>(pending)</td>' +
+                '<td>' + rec.label + ' <span style="color:#b3261e; font-size:0.8rem;">(pending sync)</span></td>' +
+                '<td><input type="radio" name="status_' + rec.localId + '" value="present" checked></td>' +
+                '<td><input type="radio" name="status_' + rec.localId + '" value="absent"></td>';
+            table.appendChild(tr);
+        });
+    });
+    </script>
     {% endif %}
 </div>
 {% endblock %}

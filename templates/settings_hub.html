@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<div class="card">
+    <h3>Your Account</h3>
+    <a class="btn" href="{{ url_for('change_password') }}">Change Password</a>
+</div>
+
+{% if session.get('role') in ['admin', 'sub_admin'] %}
+<div class="card">
+    <h3>School Settings</h3>
+    <a class="btn" href="{{ url_for('admin_school') }}">School Profile (name, logo, alignment, signup code)</a>
+    <a class="btn" href="{{ url_for('admin_email') }}">Email Settings (SMTP for parent notifications)</a>
+    <a class="btn" href="{{ url_for('admin_promote') }}">Promote Students</a>
+</div>
+
+<div class="card" style="border-left: 4px solid var(--gold);">
+    <h3>Clear Demo Data</h3>
+    <p style="font-size:0.9rem; color:#666;">
+        A lighter option than Delete Account below — this wipes just the sample
+        classes, subjects, students, and teachers so you can start loading your
+        real school's data on a clean slate. Your login, sessions/terms, grading
+        setup, and skill traits are all kept.
+    </p>
+    <form method="POST" action="{{ url_for('reset_demo_data') }}"
+          onsubmit="return confirm('This permanently deletes all classes, subjects, students, teachers and their scores. Continue?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Type RESET to confirm</label>
+        <input type="text" name="confirm_text" placeholder="RESET" required style="max-width:200px;">
+        <button class="btn btn-gold" style="margin-top:0.75rem;" type="submit">Clear Demo Data</button>
+    </form>
+</div>
+{% endif %}
+
+{% if session.get('role') == 'admin' %}
+<div class="card">
+    <h3>Sub-Admins</h3>
+    <a class="btn" href="{{ url_for('admin_subadmins') }}">Manage Sub-Admins</a>
+</div>
+
+<div class="card" style="border-left: 4px solid #b3261e;">
+    <h3>Delete Account</h3>
+    <p style="font-size:0.9rem; color:#666;">
+        This permanently deletes your school's entire account — every class, subject,
+        student, score, and staff login. <b>This cannot be undone.</b> There is no way
+        to recover this data afterward.
+    </p>
+    <form method="POST" action="{{ url_for('delete_account') }}"
+          onsubmit="return confirm('This will PERMANENTLY delete your entire school account and all its data. This cannot be undone. Are you absolutely sure?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Your Password</label>
+        <input type="password" name="password" required>
+        <label>Type DELETE to confirm</label>
+        <input type="text" name="confirm_text" placeholder="DELETE" required style="max-width:200px;">
+        <button class="btn" style="background:#b3261e; margin-top:0.75rem;" type="submit">Permanently Delete My Account</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
