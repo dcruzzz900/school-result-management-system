@@ -5,7 +5,7 @@
 
 <div class="card">
     <h3>Add a Teacher</h3>
-    <form method="POST" data-offline="true" data-offline-label="Add Teacher">
+    <form method="POST" data-offline="true" data-offline-label="Add Teacher" data-offline-creates="teacher">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Full Name</label>
         <input type="text" name="name" required>
@@ -27,7 +27,7 @@
 <div class="card">
     <h3>All Teachers</h3>
     <table>
-        <tr><th>Name</th><th>Username</th><th>Position</th><th>Actions</th></tr>
+        <tr><th>Name</th><th>Username</th><th>Position</th><th>Status</th><th>Actions</th></tr>
         {% for t in teachers %}
         <tr>
             <td>{{ t.name }}</td>
@@ -43,7 +43,19 @@
                     </select>
                 </form>
             </td>
+            <td>
+                {% if t.is_active %}
+                <span style="color:#1a7f37;">Active</span>
+                {% else %}
+                <span style="color:#b3261e;">Deactivated</span>
+                {% endif %}
+            </td>
             <td style="white-space:nowrap;">
+                <form method="POST" action="{{ url_for('toggle_teacher_active', teacher_id=t.id) }}" class="inline"
+                      {% if t.is_active %}onsubmit="return confirm('Deactivate {{ t.name }}? This also blocks their offline login on any device.');"{% endif %}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-small" type="submit">{{ 'Deactivate' if t.is_active else 'Reactivate' }}</button>
+                </form>
                 <form method="POST" action="{{ url_for('admin_reset_teacher_password', teacher_id=t.id) }}" class="inline"
                       onsubmit="return confirm('Reset the password for {{ t.name }}? A new temporary password will be shown here once.');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

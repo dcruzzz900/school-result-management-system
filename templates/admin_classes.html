@@ -5,7 +5,7 @@
 
 <div class="card">
     <h3>Add a Class</h3>
-    <form method="POST" data-offline="true" data-offline-label="Add Class">
+    <form method="POST" data-offline="true" data-offline-label="Add Class" data-offline-creates="class">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Class name (e.g. JSS1A, SS1 Science A)</label>
         <input type="text" name="name" required>

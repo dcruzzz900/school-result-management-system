@@ -26,7 +26,20 @@ if ("serviceWorker" in navigator) {
 }
 </script>
 </head>
-<body>
+<body{% if session.get('user_id') %} data-auth-username="{{ session.get('username') }}" data-auth-school-id="{{ session.get('school_id') }}"{% endif %}>
+<div id="offlineLockScreen" class="offline-lock-screen" style="display:none;">
+    <div class="card offline-lock-card">
+        <h2>🔒 Offline</h2>
+        <p style="color:#666; font-size:0.9rem;">You're offline. Confirm your password to continue where you left off on this device.</p>
+        <form id="offlineLockForm">
+            <label>Password</label>
+            <input type="password" id="offlineLockPassword" required autofocus>
+            <button class="btn" type="submit" style="width:100%;">Unlock</button>
+        </form>
+        <p id="offlineLockError" class="flash flash-error" style="display:none;"></p>
+        <p style="font-size:0.8rem; color:#999; margin-top:0.75rem;">Not you? <a href="{{ url_for('logout') if session.get('user_id') else '#' }}">Log out</a> instead.</p>
+    </div>
+</div>
 {% if session.get('user_id') %}
 <nav class="navbar">
     <div class="navbar-brand navbar-brand-{{ school_logo_align or 'center' }}">
@@ -58,10 +71,6 @@ if ("serviceWorker" in navigator) {
         <a href="{{ url_for('offline_queue_page') }}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10Z"/></svg>
             Offline Queue<span id="offlineQueueBadge" class="offline-badge">0</span>
-        </a>
-        <a href="{{ url_for('offline_app_shell') }}">
-            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
-            Offline App<span id="offlineSyncBadge" class="offline-badge" style="display:none;">0</span>
         </a>
         {% if session.get('role') in ['admin', 'sub_admin'] %}
         <a href="{{ url_for('admin_classes') }}">
@@ -203,33 +212,52 @@ setInterval(updateLiveClock, 30000);
 </script>
 {% endif %}
 {% if session.get('user_id') %}
-<script src="{{ url_for('static', filename='js/offline-queue.js') }}"></script>
-{% endif %}
-{% if session.get('role') in ['admin', 'sub_admin', 'teacher'] %}
-<script src="{{ url_for('static', filename='js/offline-crypto.js') }}"></script>
-<script src="{{ url_for('static', filename='js/offline-db.js') }}"></script>
 <script src="{{ url_for('static', filename='js/offline-auth.js') }}"></script>
-<script src="{{ url_for('static', filename='js/sync-engine.js') }}"></script>
+<script src="{{ url_for('static', filename='js/offline-queue.js') }}"></script>
 <script>
-(async function () {
-    const badge = document.getElementById("offlineSyncBadge");
-    if (!badge) return;
-    const session = OfflineAuth.getSession();
-    const schoolId = session ? session.user.school_id : {{ session.get('school_id', 'null') }};
-    if (!schoolId) return;
-    async function refresh() {
-        const counts = await OfflineDB.getPendingCounts(schoolId).catch(() => null);
-        if (!counts) return;
-        const total = counts.pending + counts.conflict + counts.failed;
-        badge.style.display = total ? "inline-block" : "none";
-        badge.textContent = total;
-        badge.style.background = counts.conflict || counts.failed ? "#b3261e" : "";
+(function () {
+    var username = document.body.getAttribute("data-auth-username");
+    if (!username) return;
+
+    var screen = document.getElementById("offlineLockScreen");
+    var form = document.getElementById("offlineLockForm");
+    var errorEl = document.getElementById("offlineLockError");
+    var storageKey = "offline_unlocked_" + username;
+
+    if (!navigator.onLine && sessionStorage.getItem(storageKey) !== "1") {
+        screen.style.display = "flex";
     }
-    document.addEventListener("offline-sync-status", refresh);
-    refresh();
-    if (session && navigator.onLine) {
-        SyncEngine.syncNow(schoolId, session.device_id, session.device_secret).then(refresh).catch(() => {});
-    }
+
+    form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var password = document.getElementById("offlineLockPassword").value;
+        OfflineAuth.tryUnlock(username, password).then(function (result) {
+            if (result.ok) {
+                sessionStorage.setItem(storageKey, "1");
+                screen.style.display = "none";
+                errorEl.style.display = "none";
+            } else {
+                errorEl.textContent = result.reason;
+                errorEl.style.display = "block";
+            }
+        });
+    });
+
+    // The moment connectivity comes back, check the account/school are
+    // still in good standing. If not, wipe the offline credential so this
+    // device can no longer unlock offline access to it, and sign out.
+    window.addEventListener("online", function () {
+        fetch("{{ url_for('offline_auth_status') }}", { credentials: "same-origin" })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (data && data.active === false) {
+                    OfflineAuth.clearCredential(username).then(function () {
+                        window.location.href = "{{ url_for('logout') }}";
+                    });
+                }
+            })
+            .catch(function () {});
+    });
 })();
 </script>
 {% endif %}
