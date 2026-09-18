@@ -8,15 +8,15 @@
     <form method="POST" data-offline="true" data-offline-label="Assign Subject to Class">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Class</label>
-        <select name="class_id" required data-offline-ref="class">
+        <select name="class_id" required>
             {% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
         </select>
         <label>Subject</label>
-        <select name="subject_id" required data-offline-ref="subject">
+        <select name="subject_id" required>
             {% for s in subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
         </select>
         <label>Teacher</label>
-        <select name="teacher_id" data-offline-ref="teacher">
+        <select name="teacher_id">
             <option value="">-- unassigned --</option>
             {% for t in teachers %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
         </select>

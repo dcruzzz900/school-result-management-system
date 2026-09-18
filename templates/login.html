@@ -13,14 +13,13 @@
         <h2>📘 School Result System</h2>
         <p style="color:#666; font-size:0.9rem;">Sign in to continue</p>
         {% endif %}
-        <form method="POST" id="loginForm">
+        <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>Username</label>
             <input type="text" name="username" required autofocus>
             <label>Password</label>
             <input type="password" name="password" required>
             <button class="btn" type="submit" style="width:100%;">Login</button>
-            <p id="loginOfflineNotice" style="color:#666; font-size:0.85rem; margin-top:0.5rem; display:none;">You're offline — checking for saved offline access on this device&hellip;</p>
         </form>
         <p style="font-size:0.85rem; margin-top:1rem; text-align:center;">
             <a href="{{ url_for('recover') }}">Forgot password?</a> &nbsp;|&nbsp;
@@ -31,86 +30,4 @@
         </p>
     </div>
 </div>
-<script src="{{ url_for('static', filename='js/offline-auth.js') }}"></script>
-<script>
-(function () {
-  var form = document.getElementById("loginForm");
-  var notice = document.getElementById("loginOfflineNotice");
-
-  function showError(message) {
-    var existing = document.querySelector(".flash-error");
-    if (existing) existing.remove();
-    var div = document.createElement("div");
-    div.className = "flash flash-error";
-    div.textContent = message;
-    form.parentNode.insertBefore(div, form);
-  }
-
-  function afterOfflineUnlock(username, result) {
-    notice.style.display = "none";
-    if (result.ok) {
-      sessionStorage.setItem("offline_unlocked_" + username, "1");
-      // Land on Dashboard — it's cached from prior online visits and will
-      // render straight from the service worker's cache with no network.
-      window.location.href = "{{ url_for('dashboard') }}";
-    } else {
-      showError(result.reason);
-    }
-  }
-
-  form.addEventListener("submit", function (e) {
-    var username = form.username.value.trim();
-    var password = form.password.value;
-
-    if (!navigator.onLine) {
-      e.preventDefault();
-      notice.style.display = "block";
-      OfflineAuth.tryUnlock(username, password).then(function (result) {
-        afterOfflineUnlock(username, result);
-      });
-      return;
-    }
-
-    e.preventDefault();
-    var body = new URLSearchParams();
-    body.set("username", username);
-    body.set("password", password);
-    body.set("csrf_token", form.csrf_token.value);
-
-    fetch(window.location.href, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-      credentials: "same-origin",
-    })
-      .then(function (resp) {
-        if (resp.url.indexOf("{{ url_for('dashboard') }}") !== -1) {
-          // Successful login. Fetch this user's offline-login payload and
-          // encrypt+store it locally while the password is still in memory.
-          return fetch("{{ url_for('offline_auth_bundle') }}", { credentials: "same-origin" })
-            .then(function (r) { return r.json(); })
-            .then(function (payload) {
-              return OfflineAuth.registerCredential(username, password, payload);
-            })
-            .then(function () {
-              window.location.href = "{{ url_for('dashboard') }}";
-            });
-        }
-        return resp.text().then(function (html) {
-          document.open();
-          document.write(html);
-          document.close();
-        });
-      })
-      .catch(function () {
-        // The fetch itself failed — connection dropped between page load
-        // and submit. Fall back to an offline unlock attempt.
-        notice.style.display = "block";
-        OfflineAuth.tryUnlock(username, password).then(function (result) {
-          afterOfflineUnlock(username, result);
-        });
-      });
-  });
-})();
-</script>
 {% endblock %}

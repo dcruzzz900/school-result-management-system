@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offline — {{ school_name or "Results" }}</title>
+<link rel="manifest" href="{{ url_for('manifest') }}">
+<meta name="theme-color" content="#1f3a5f">
+<link rel="icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<style>
+  body { background: #f4f6f9; }
+  .container-offline { max-width: 720px; margin: 0 auto; padding: 1rem; }
+  #offlineRoot label { display:block; margin-top:0.75rem; font-size:0.85rem; color:#555; }
+  #offlineRoot input, #offlineRoot select { width:100%; padding:0.5rem; margin-top:0.25rem; box-sizing:border-box; }
+</style>
+</head>
+<body>
+<div class="container-offline">
+  <h1 style="text-align:center; color:var(--navy, #1f3a5f);">{{ school_name or "School Results" }} — Offline</h1>
+  <p style="text-align:center; font-size:0.85rem; color:#777;">
+    This page works with no internet connection, as long as this device has been
+    enrolled for offline access at least once while online (Settings &rarr; Offline Access).
+  </p>
+  <div id="offlineRoot"></div>
+</div>
+<script src="{{ url_for('static', filename='js/offline-crypto.js') }}"></script>
+<script src="{{ url_for('static', filename='js/offline-db.js') }}"></script>
+<script src="{{ url_for('static', filename='js/offline-auth.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sync-engine.js') }}"></script>
+<script src="{{ url_for('static', filename='js/offline-app-ui.js') }}"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("{{ url_for('service_worker') }}");
+}
+</script>
+</body>
+</html>
