@@ -1,8 +1,19 @@
-const CACHE_NAME = "school-results-shell-v3";
+const CACHE_NAME = "school-results-shell-v4";
 const SHELL_ASSETS = [
   "/static/css/style.css",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
+  // The offline-first app shell and everything it needs to run are
+  // precached explicitly here (not just cached-on-visit like other pages)
+  // so a device that has enrolled for offline access (Settings → Offline
+  // Access) but has never actually opened /offline-app yet still has it
+  // available the very first time it loses connectivity.
+  "/offline-app",
+  "/static/js/offline-crypto.js",
+  "/static/js/offline-db.js",
+  "/static/js/offline-auth.js",
+  "/static/js/sync-engine.js",
+  "/static/js/offline-app-ui.js",
 ];
 
 self.addEventListener("install", (event) => {
