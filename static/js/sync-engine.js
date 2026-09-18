@@ -47,17 +47,30 @@ const SyncEngine = (function () {
     // Pulls a full snapshot and seeds the local school database. Called
     // right after enrollment (see offline-auth.js) so the device is
     // usable offline immediately, without waiting for a second visit.
+    // Paginated server-side (sync_api.py's PAGE_SIZE) for large schools —
+    // this loops until every entity's `cursor` is exhausted rather than
+    // asking the server to hand back an unbounded response in one shot.
     async function bootstrap(schoolId, deviceId, deviceSecret) {
-        const res = await fetch("/api/sync/bootstrap", { headers: authHeaders(deviceId, deviceSecret) });
-        if (!res.ok) throw new Error("Could not download offline data for this device.");
-        const data = await res.json();
-        for (const [entity, rows] of Object.entries(data.entities)) {
-            const tagged = rows.map((r) => ({ ...r, _sync: { status: "synced", attempts: 0 } }));
-            await OfflineDB.putRecords(schoolId, entity, tagged);
-        }
-        await OfflineDB.setMeta(schoolId, "last_sync_at", data.generated_at);
+        const headers = authHeaders(deviceId, deviceSecret);
+        let cursor = null;
+        let firstGeneratedAt = null;
+        let totalRows = 0;
+        do {
+            const url = "/api/sync/bootstrap" + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : "");
+            const res = await fetch(url, { headers });
+            if (!res.ok) throw new Error("Could not download offline data for this device.");
+            const data = await res.json();
+            firstGeneratedAt = firstGeneratedAt || data.generated_at;
+            for (const [entity, rows] of Object.entries(data.entities)) {
+                const tagged = rows.map((r) => ({ ...r, _sync: { status: "synced", attempts: 0 } }));
+                await OfflineDB.putRecords(schoolId, entity, tagged);
+                totalRows += rows.length;
+            }
+            cursor = data.cursor || null;
+        } while (cursor);
+        await OfflineDB.setMeta(schoolId, "last_sync_at", firstGeneratedAt);
         broadcastStatus(schoolId);
-        return data;
+        return { generated_at: firstGeneratedAt, rowCount: totalRows };
     }
 
     // A record created offline that references another record ALSO
@@ -329,27 +342,41 @@ const SyncEngine = (function () {
 
     async function pullDeltas(schoolId, headers) {
         const since = await OfflineDB.getMeta(schoolId, "last_sync_at");
-        const url = "/api/sync/pull" + (since ? `?since=${encodeURIComponent(since)}` : "");
-        const res = await fetch(url, { headers });
-        if (!res.ok) return { applied: 0 };
-        const data = await res.json();
+        let cursor = null;
+        let firstGeneratedAt = null;
         let applied = 0;
-        for (const [entity, rows] of Object.entries(data.entities)) {
-            for (const row of rows) {
-                const local = await OfflineDB.getRecord(schoolId, entity, row.client_uuid);
-                if (local && local._sync && (local._sync.status === "pending" || local._sync.status === "conflict")) {
-                    // Don't clobber an unsynced local edit with an
-                    // incoming server change — surface it as a conflict
-                    // instead so nothing is silently lost either way.
-                    local._sync = { ...local._sync, status: "conflict", server_data: row };
-                    await OfflineDB.putRecord(schoolId, entity, local);
-                } else {
-                    await OfflineDB.putRecord(schoolId, entity, { ...row, _sync: { status: "synced", attempts: 0 } });
+        do {
+            let url = "/api/sync/pull" + (since ? `?since=${encodeURIComponent(since)}` : "");
+            url += (since ? "&" : "?") + (cursor ? `cursor=${encodeURIComponent(cursor)}` : "");
+            const res = await fetch(url, { headers });
+            if (!res.ok) break;
+            const data = await res.json();
+            firstGeneratedAt = firstGeneratedAt || data.generated_at;
+            for (const [entity, rows] of Object.entries(data.entities)) {
+                for (const row of rows) {
+                    const local = await OfflineDB.getRecord(schoolId, entity, row.client_uuid);
+                    if (local && local._sync && (local._sync.status === "pending" || local._sync.status === "conflict")) {
+                        // Don't clobber an unsynced local edit with an
+                        // incoming server change — surface it as a conflict
+                        // instead so nothing is silently lost either way.
+                        local._sync = { ...local._sync, status: "conflict", server_data: row };
+                        await OfflineDB.putRecord(schoolId, entity, local);
+                    } else {
+                        await OfflineDB.putRecord(schoolId, entity, { ...row, _sync: { status: "synced", attempts: 0 } });
+                    }
+                    applied++;
                 }
-                applied++;
             }
-        }
-        await OfflineDB.setMeta(schoolId, "last_sync_at", data.generated_at);
+            cursor = data.cursor || null;
+        } while (cursor);
+        // Using the FIRST page's timestamp (not the last) as the new
+        // watermark is deliberate: a record changed on the server while
+        // this multi-page pull was still in progress will simply be
+        // fetched again next time (its updated_at will be > this value),
+        // which is redundant but never lossy. Using the last page's
+        // timestamp instead could skip a record that changed in the gap
+        // between pages.
+        if (firstGeneratedAt) await OfflineDB.setMeta(schoolId, "last_sync_at", firstGeneratedAt);
         return { applied };
     }
 
