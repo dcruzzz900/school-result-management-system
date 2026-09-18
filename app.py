@@ -1,6 +1,6 @@
 from flask import (
     Flask, render_template, request, redirect, url_for, session, flash,
-    send_file, send_from_directory, g,
+    send_file, send_from_directory, g, jsonify,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -26,12 +26,14 @@ from db import (
     generate_teacher_comment, generate_principal_comment,
     CLASS_CATEGORIES, MATERIAL_KINDS, format_dmy, STAFF_ATTENDANCE_STATUSES,
     PDF_FONT_CHOICES, WEB_FONTS, generate_activation_code, current_activation_code_status,
-    verify_activation_code,
+    verify_activation_code, revoke_device_credentials_for_user, revoke_device_credentials_for_school,
 )
 import datetime
+import json
 from pdf_utils import build_broadsheet_pdf, build_result_pdf, build_class_results_pdf, build_cumulative_result_pdf, build_generic_table_pdf
 from email_utils import send_email, send_platform_email
 from reports import build_csv, build_xlsx
+from sync_api import sync_bp
 
 ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
@@ -106,6 +108,35 @@ app.jinja_env.globals["csrf_token"] = get_csrf_token
 def _check_csrf():
     if request.method not in CSRF_UNSAFE_METHODS:
         return None
+    if request.path.startswith("/api/"):
+        # The offline sync API is JSON-only and authenticated one of two
+        # ways, neither of which is vulnerable to classic cookie-riding
+        # CSRF the way a form POST is:
+        #   - a device credential sent as custom headers (X-Device-Id /
+        #     X-Device-Secret) — a cross-site page can't attach arbitrary
+        #     headers to a simple form submission, and reading them back
+        #     out of the device's encrypted local storage requires
+        #     same-origin JS in the first place;
+        #   - the normal session cookie, for the one endpoint that's used
+        #     before a device has a credential yet (/api/offline/enroll) —
+        #     that path is checked below via an explicit header instead of
+        #     the form field, since it's a JSON body rather than a form.
+        if request.headers.get("X-Device-Id") and request.headers.get("X-Device-Secret"):
+            return None
+        if request.path == "/api/offline/verify":
+            # Authenticated entirely by knowledge of the device_secret in
+            # the JSON body (checked against its stored hash inside the
+            # handler) — there's deliberately no session/cookie involved
+            # here, since the whole point is to work for a device that
+            # only just regained connectivity and hasn't necessarily
+            # logged in online this session.
+            return None
+        if "user_id" in session:
+            submitted = request.headers.get("X-CSRF-Token", "")
+            expected = session.get("_csrf_token", "")
+            if expected and secrets.compare_digest(submitted, expected):
+                return None
+        return jsonify({"error": "csrf_check_failed"}), 403
     submitted = request.form.get("csrf_token", "")
     expected = session.get("_csrf_token", "")
     if not expected or not secrets.compare_digest(submitted, expected):
@@ -115,6 +146,7 @@ def _check_csrf():
 
 
 app.jinja_env.filters["dmy"] = format_dmy
+app.register_blueprint(sync_bp)
 
 
 @app.route("/csrf-token")
@@ -825,6 +857,77 @@ def dashboard():
 
 
 # ---------- admin: school profile ----------
+
+@app.route("/admin/sync-conflicts")
+@login_required("admin", "sub_admin")
+def admin_sync_conflicts():
+    """Conflicts recorded by the offline sync API (sync_api.py) when a
+    device's push disagreed with the server's current data. These aren't
+    resolved automatically — a human decides which version is right — so
+    without this page they'd only be visible to whichever offline device
+    caused them (via the Offline App's own Sync Status screen), and would
+    otherwise sit invisible in the database indefinitely."""
+    conn = get_db()
+    school_id = current_school_id()
+    rows = conn.execute(
+        "SELECT * FROM sync_conflicts WHERE school_id=? AND resolved=0 ORDER BY detected_at DESC",
+        (school_id,),
+    ).fetchall()
+    conflicts = []
+    for r in rows:
+        conflicts.append({
+            "id": r["id"], "entity": r["entity"], "client_uuid": r["client_uuid"],
+            "device_id": r["device_id"], "detected_at": r["detected_at"],
+            "client_payload": json.loads(r["client_payload"]),
+            "server_payload": json.loads(r["server_payload"]),
+        })
+    conn.close()
+    return render_template("admin_sync_conflicts.html", conflicts=conflicts)
+
+
+@app.route("/admin/sync-conflicts/<int:conflict_id>/resolve", methods=["POST"])
+@login_required("admin", "sub_admin")
+def admin_resolve_sync_conflict(conflict_id):
+    from sync_api import ENTITIES
+    conn = get_db()
+    school_id = current_school_id()
+    row = conn.execute(
+        "SELECT * FROM sync_conflicts WHERE id=? AND school_id=?", (conflict_id, school_id)
+    ).fetchone()
+    if not row:
+        flash("Conflict not found.", "error")
+        conn.close()
+        return redirect(url_for("admin_sync_conflicts"))
+
+    action = request.form.get("action")
+    cfg = ENTITIES.get(row["entity"])
+    if action == "apply_client" and cfg:
+        client_fields = json.loads(row["client_payload"])
+        client_fields = {k: v for k, v in client_fields.items() if k in cfg["fields"]}
+        existing = conn.execute(
+            f"SELECT id FROM {cfg['table']} WHERE client_uuid=?", (row["client_uuid"],)
+        ).fetchone()
+        if existing and client_fields:
+            set_clause = ", ".join(f"{k}=?" for k in client_fields)
+            conn.execute(
+                f"UPDATE {cfg['table']} SET {set_clause}, updated_at=? WHERE client_uuid=?",
+                (*client_fields.values(), datetime.datetime.utcnow().isoformat(timespec="seconds"), row["client_uuid"]),
+            )
+            resolution = "applied_client_version"
+        else:
+            resolution = "kept_server_version (client row not found — likely a create conflict; add it manually if needed)"
+    else:
+        resolution = "kept_server_version"
+
+    conn.execute(
+        "UPDATE sync_conflicts SET resolved=1, resolved_at=?, resolution=? WHERE id=?",
+        (datetime.datetime.utcnow().isoformat(timespec="seconds"), resolution, conflict_id),
+    )
+    conn.commit()
+    conn.close()
+    flash("Conflict marked resolved.", "success")
+    return redirect(url_for("admin_sync_conflicts"))
+
 
 @app.route("/admin/school", methods=["GET", "POST"])
 @login_required("admin", "sub_admin")
@@ -1579,6 +1682,7 @@ def delete_teacher(teacher_id):
     conn.execute("UPDATE classes SET form_teacher_id=NULL WHERE form_teacher_id=?", (teacher_id,))
     conn.execute("UPDATE class_subjects SET teacher_id=NULL WHERE teacher_id=?", (teacher_id,))
     conn.execute("DELETE FROM users WHERE id=? AND role='teacher'", (teacher_id,))
+    revoke_device_credentials_for_user(conn, teacher_id, reason="account deleted")
     conn.commit()
     conn.close()
     flash("Teacher removed. Any classes/subjects they were assigned to are now unassigned.", "success")
@@ -3557,6 +3661,23 @@ def offline_queue_page():
     return render_template("offline_queue.html")
 
 
+@app.route("/offline-app")
+def offline_app_shell():
+    """The full offline-first app shell: PIN login (no server session
+    needed at all) plus attendance/score-entry/registration/sync screens
+    rendered entirely from this device's local IndexedDB copy of the
+    data. Deliberately NOT behind @login_required — the whole point is
+    that it has to open with zero connectivity, so it can't depend on a
+    live Flask session. See OFFLINE_ARCHITECTURE.md."""
+    school_name = None
+    if "school_id" in session:
+        conn = get_db()
+        school = get_school(conn, session["school_id"])
+        conn.close()
+        school_name = school["name"] if school else None
+    return render_template("offline_app.html", school_name=school_name)
+
+
 # ---------- reports & analytics ----------
 
 @app.route("/reports")
@@ -4298,6 +4419,7 @@ def platform_suspend_school(school_id):
     school = get_school(conn, school_id)
     if school:
         conn.execute("UPDATE schools SET is_suspended=1 WHERE id=?", (school_id,))
+        revoke_device_credentials_for_school(conn, school_id, reason="school suspended")
         log_audit(conn, "platform_admin", session.get("platform_admin_name"), "suspend_school",
                   details=f"Suspended '{school['name']}'", school_id=school_id)
         conn.commit()
