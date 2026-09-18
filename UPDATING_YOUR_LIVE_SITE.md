@@ -1,37 +1,36 @@
 # Updating Your Live Site With This New Version
 
 You already have this app deployed and working on PythonAnywhere. This is a
-small update — no schema changes, no new files. It upgrades your live
-database in place with **zero data loss**.
+small update — no schema changes this time, no new external dependencies.
 
 ## What's new in this update
 
-Fully wires up offline data entry so staff can keep working with no
-connection and have it sync automatically once they're back online.
+**Offline data entry now covers scores, attendance, and subject
+assignments for students/classes/subjects created offline** — not just the
+records themselves.
 
-- **Pages now open while fully offline.** Previously, only form
-  *submissions* were queued while offline — but if you opened Score Entry,
-  Roll Call, or any admin form fresh with zero connectivity, you'd just see
-  a "please reconnect" message instead of the form. Now, any page that's
-  been opened once while online is cached and can be reopened offline after
-  that, with the data as it was at last load.
-- **Logins now last 30 days** instead of ending whenever the browser or
-  app is closed. This matters for offline use — without it, a teacher who's
-  offline for a stretch (weekend, poor signal for a few days) could get
-  logged out, and their queued offline entries would fail to sync silently
-  once back online, with no login screen to tell them why.
-- No changes to the offline queue itself (Score Entry, Roll Call, Update
-  Comments/Attendance, and the admin add/edit forms) — that queuing and
-  auto-sync was already working; this update makes sure the pages behind it
-  are actually reachable offline too.
+- Add a student offline, then go straight to **Score Entry** or **Roll
+  Call** for that student's class (still offline) — the student now shows
+  up in the table, marked "(pending sync)", ready for scores or attendance.
+- Assigning a subject to a class (**Setup → Assign Subjects**) now also
+  works with classes, subjects, or teachers that were themselves just
+  created offline and haven't synced yet — they show up in the dropdowns
+  as "(pending sync)" too.
+- When everything syncs, it happens in the right order automatically: the
+  student (or class, subject, teacher) syncs first and gets a real ID from
+  the server, and every score/attendance/assignment entry that referenced
+  it is updated to that real ID before being sent.
+- If you enter scores for a mix of already-existing students and a
+  brand-new offline one in the same Score Entry save, the whole save waits
+  until that new student has synced, then sends everyone together — this
+  keeps things simple and safe, at the cost of the existing students'
+  scores waiting slightly longer too when a new student's in the mix.
 
-**One inherent limit worth knowing:** a page has to be opened at least once
-while online before it can be opened offline. There's no way around this —
-the device has to receive the page from the server before it can show it
-without one. So the recommended habit for staff: open your Score Entry and
-Roll Call pages for your usual classes once while you still have signal
-(e.g. at the start of the term), and they'll stay available offline from
-then on.
+**Known limitation:** if a class has *zero* existing students, Roll Call
+currently shows "No active students in this class yet" and won't display
+even a pending offline-created student there — this only affects a class
+that has no students at all yet. Works normally for Score Entry regardless
+of how many existing students there are.
 
 ## Steps
 
@@ -64,15 +63,20 @@ then on.
 7. Go to the **Web** tab and click the big green **Reload** button.
 8. On a phone that already has this app installed/bookmarked, do a full
    refresh once (pull-to-refresh or close and reopen the tab/app) so it
-   picks up the new service worker — it auto-updates in the background
-   otherwise, just not instantly.
-9. While still online, open Score Entry and Roll Call for each class staff
-   will need, so those pages get cached for offline use.
-10. Test it: turn on Airplane Mode, open a previously-visited Score Entry
-    or Roll Call page, make an entry, and save. You should see a "Saved
-    offline" toast. Turn Airplane Mode back off and either wait a moment or
-    visit **Offline Queue** (in Settings) and tap **Sync Now** — the entry
-    should disappear from the queue once it's synced.
+   picks up the updated scripts.
+9. Test it:
+   - Turn on Airplane Mode.
+   - Add a new student to an existing class (**Setup → Students**).
+   - Go to **Score Entry** for that class/a subject — the new student
+     should appear, marked "(pending sync)". Enter a score for them.
+   - Turn Airplane Mode back off, open **Offline Queue**, tap **Sync Now**.
+     Both the student and their score should sync — check the score landed
+     on the right student.
+   - Try the same for **Roll Call**, and for assigning a subject to a
+     newly-created (still offline) class in **Setup → Assign Subjects**.
 
 If anything looks off after reloading, check the **Error log** link on the
 Web tab and paste me what it says.
+
+
+
