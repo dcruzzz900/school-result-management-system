@@ -59,6 +59,10 @@ if ("serviceWorker" in navigator) {
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10Z"/></svg>
             Offline Queue<span id="offlineQueueBadge" class="offline-badge">0</span>
         </a>
+        <a href="{{ url_for('offline_app_shell') }}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            Offline App<span id="offlineSyncBadge" class="offline-badge" style="display:none;">0</span>
+        </a>
         {% if session.get('role') in ['admin', 'sub_admin'] %}
         <a href="{{ url_for('admin_classes') }}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
@@ -200,6 +204,34 @@ setInterval(updateLiveClock, 30000);
 {% endif %}
 {% if session.get('user_id') %}
 <script src="{{ url_for('static', filename='js/offline-queue.js') }}"></script>
+{% endif %}
+{% if session.get('role') in ['admin', 'sub_admin', 'teacher'] %}
+<script src="{{ url_for('static', filename='js/offline-crypto.js') }}"></script>
+<script src="{{ url_for('static', filename='js/offline-db.js') }}"></script>
+<script src="{{ url_for('static', filename='js/offline-auth.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sync-engine.js') }}"></script>
+<script>
+(async function () {
+    const badge = document.getElementById("offlineSyncBadge");
+    if (!badge) return;
+    const session = OfflineAuth.getSession();
+    const schoolId = session ? session.user.school_id : {{ session.get('school_id', 'null') }};
+    if (!schoolId) return;
+    async function refresh() {
+        const counts = await OfflineDB.getPendingCounts(schoolId).catch(() => null);
+        if (!counts) return;
+        const total = counts.pending + counts.conflict + counts.failed;
+        badge.style.display = total ? "inline-block" : "none";
+        badge.textContent = total;
+        badge.style.background = counts.conflict || counts.failed ? "#b3261e" : "";
+    }
+    document.addEventListener("offline-sync-status", refresh);
+    refresh();
+    if (session && navigator.onLine) {
+        SyncEngine.syncNow(schoolId, session.device_id, session.device_secret).then(refresh).catch(() => {});
+    }
+})();
+</script>
 {% endif %}
 </body>
 </html>
