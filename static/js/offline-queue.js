@@ -8,35 +8,16 @@
  * page). Each queued item replays as an exact copy of the original form
  * fields against the same URL, using a freshly-fetched CSRF token.
  *
- * Forms that CREATE a record — Add Class, Add Student, Add Teacher, Add
- * Subject — are also tagged data-offline-creates="<type>". Queuing one of
- * these immediately gives it a local placeholder ID (e.g.
- * "local_class_171..."), stored under offline_pending_records_v1, and
- * injects it as a new option into any select[data-offline-ref="<type>"]
- * on the page — so you can, say, create a new class and immediately pick
- * it in the Add Student form, all offline, all on this device. Any other
- * queued form that references that placeholder is marked as depending on
- * it and won't sync until the parent record has synced and been given a
- * real server ID — at which point its placeholder is swapped out for the
- * real one everywhere it's used before that dependent item is sent. Each
- * entity-creating item also carries a one-time token, so if a sync
- * actually succeeds on the server but the client never sees the response
- * (connection drops right after), retrying it reuses the same record
- * instead of creating a duplicate.
- *
  * What it deliberately does NOT do: true background sync while the tab is
- * closed, conflict resolution for a record that changed on the server in
- * the meantime (only creation is placeholder-aware — editing/deleting an
- * existing record offline still just replays against its real ID), or
- * queuing of file uploads (CSV imports aren't offline-capable).
- * navigator.onLine also isn't 100% reliable — it can report "online" on a
- * network with no real internet — so a sync attempt can still fail even
- * when this says you're online; failed syncs stay in the queue and are
- * retried, they are never silently dropped.
+ * closed, automatic conflict resolution if the same record changed on the
+ * server in the meantime, or queuing of file uploads (CSV imports aren't
+ * offline-capable). navigator.onLine also isn't 100% reliable — it can
+ * report "online" on a network with no real internet — so a sync attempt
+ * can still fail even when this says you're online; failed syncs stay in
+ * the queue and are retried, they are never silently dropped.
  */
 const OfflineQueue = (function () {
     const KEY = "offline_queue_v1";
-    const PENDING_KEY = "offline_pending_records_v1";
 
     function loadQueue() {
         try {
@@ -62,79 +43,6 @@ const OfflineQueue = (function () {
         el.style.display = n > 0 ? "inline-block" : "none";
     }
 
-    // --- Pending (not-yet-synced) locally-created records ----------------
-    // { class: [{localId, label, meta}], student: [...], ... }
-    // meta is optional, entity-specific context — e.g. a pending student's
-    // meta.classId lets Score Entry / Roll Call know which class's roster
-    // to show it in.
-
-    // A generated local placeholder always looks like local_<type>_<digits>_<rand>.
-    const LOCAL_ID_PATTERN = /local_[A-Za-z]+_\d+_[a-z0-9]+/g;
-
-    function loadPendingRecords() {
-        try {
-            return JSON.parse(localStorage.getItem(PENDING_KEY) || "{}");
-        } catch (e) {
-            return {};
-        }
-    }
-
-    function savePendingRecords(all) {
-        localStorage.setItem(PENDING_KEY, JSON.stringify(all));
-    }
-
-    function addPendingRecord(entityType, localId, label, meta) {
-        const all = loadPendingRecords();
-        if (!all[entityType]) all[entityType] = [];
-        all[entityType].push({ localId: localId, label: label, meta: meta || null });
-        savePendingRecords(all);
-    }
-
-    function removePendingRecord(entityType, localId) {
-        const all = loadPendingRecords();
-        if (all[entityType]) {
-            all[entityType] = all[entityType].filter((r) => r.localId !== localId);
-            savePendingRecords(all);
-        }
-    }
-
-    // Used by other pages (Score Entry, Roll Call) to find pending records
-    // relevant to what they're showing — e.g. students waiting to sync
-    // into the class currently being viewed.
-    function getPendingRecords(entityType) {
-        return loadPendingRecords()[entityType] || [];
-    }
-
-    function labelForLocalId(localId) {
-        const all = loadPendingRecords();
-        for (const type in all) {
-            const rec = (all[type] || []).find((r) => r.localId === localId);
-            if (rec) return rec.label;
-        }
-        return "another offline item";
-    }
-
-    // Injects an <option> for every not-yet-synced local record into any
-    // select[data-offline-ref="<type>"] on the current page. Safe to call
-    // repeatedly — skips options it's already added.
-    function populateRefSelects() {
-        const all = loadPendingRecords();
-        document.querySelectorAll("select[data-offline-ref]").forEach((select) => {
-            const type = select.dataset.offlineRef;
-            (all[type] || []).forEach((rec) => {
-                if (select.querySelector('option[value="' + rec.localId + '"]')) return;
-                const opt = document.createElement("option");
-                opt.value = rec.localId;
-                opt.textContent = rec.label + " (pending sync)";
-                select.appendChild(opt);
-            });
-        });
-    }
-
-    function randomLocalId(entityType) {
-        return "local_" + entityType + "_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
-    }
-
     // Field values are kept as [key, value] pairs, not a plain object —
     // some forms (score entry) repeat the same field name once per row
     // (e.g. several "student_id" inputs), and a plain object would silently
@@ -150,21 +58,12 @@ const OfflineQueue = (function () {
 
     function describeEntry(form) {
         const label = form.dataset.offlineLabel || "Saved item";
-        const name = entityName(form);
-        return name ? label + ": " + name : label;
-    }
-
-    // Just the human name of the thing being created/edited, with no
-    // "Add X:" prefix — used for the (pending sync) dropdown option text.
-    function entityName(form) {
         const fd = new FormData(form);
-        const first = fd.get("first_name");
-        if (first) return (first + " " + (fd.get("last_name") || "")).trim();
-        for (const key of ["name", "title", "admission_no"]) {
+        for (const key of ["first_name", "name", "title", "admission_no"]) {
             const v = fd.get(key);
-            if (v) return v;
+            if (v) return label + ": " + v;
         }
-        return null;
+        return label;
     }
 
     function enqueue(entry) {
@@ -179,12 +78,7 @@ const OfflineQueue = (function () {
     }
 
     function removeEntry(id) {
-        const q = loadQueue();
-        const entry = q.find((e) => e.id === id);
-        if (entry && entry.entityType && entry.localId) {
-            removePendingRecord(entry.entityType, entry.localId);
-        }
-        saveQueue(q.filter((e) => e.id !== id));
+        saveQueue(loadQueue().filter((e) => e.id !== id));
         updateBadge();
     }
 
@@ -195,100 +89,40 @@ const OfflineQueue = (function () {
         return data.csrf_token;
     }
 
-    // Returns { ok, id?, error? }. For entity-creating entries the server
-    // is asked (via the X-Offline-Sync header) to respond with JSON
-    // carrying the new record's real id, instead of its normal
-    // flash-and-redirect page.
     async function syncOne(entry) {
         const token = await getFreshCsrfToken();
         const body = new URLSearchParams();
         entry.fields.forEach(([k, v]) => body.append(k, v));
         body.append("csrf_token", token);
-        const headers = { };
-        if (entry.entityType) headers["X-Offline-Sync"] = "1";
         const res = await fetch(entry.action, {
             method: "POST",
             body: body,
             credentials: "same-origin",
-            headers: headers,
         });
-        if (entry.entityType) {
-            let data = null;
-            try {
-                data = await res.json();
-            } catch (e) {
-                // Not JSON — most likely a login redirect (session expired).
-            }
-            if (res.ok && data && data.ok) return { ok: true, id: data.id };
-            return { ok: false, error: (data && data.error) || null };
-        }
-        return { ok: res.ok };
+        return res.ok;
     }
 
-    // Replaces every occurrence of a now-resolved local placeholder id
-    // within a string (key or value) with its real server id. Leaves
-    // anything not yet resolved untouched — that's what keeps a still-
-    // blocked dependent entry waiting instead of being sent with a
-    // placeholder baked into it.
-    function resolveIds(str, resolvedMap) {
-        return String(str).replace(LOCAL_ID_PATTERN, (id) =>
-            resolvedMap.hasOwnProperty(id) ? String(resolvedMap[id]) : id
-        );
-    }
-
-    // Syncs the queue in dependency order: an item that references a
-    // not-yet-synced local placeholder waits until that parent item has
-    // synced and been resolved to a real id, which is then substituted in
-    // before the dependent item is sent. Runs repeated passes over
-    // whatever's left until a full pass makes no progress.
     async function syncAll(onProgress) {
         const q = loadQueue();
-        const total = q.length;
-        const resolvedMap = {};
+        const remaining = [];
         let successCount = 0;
-        let remaining = q.slice();
-        let progressMade = true;
-
-        while (progressMade && remaining.length) {
-            progressMade = false;
-            const stillRemaining = [];
-            for (const entry of remaining) {
-                const unresolvedDeps = (entry.dependsOn || []).filter((id) => !(id in resolvedMap));
-                if (unresolvedDeps.length) {
-                    entry.lastError = 'Waiting on "' + labelForLocalId(unresolvedDeps[0]) + '" to sync first.';
-                    stillRemaining.push(entry);
-                    continue;
-                }
-
-                const resolvedFields = entry.fields.map(([k, v]) => [
-                    resolveIds(k, resolvedMap),
-                    resolveIds(v, resolvedMap),
-                ]);
-
-                try {
-                    const result = await syncOne({ ...entry, fields: resolvedFields });
-                    if (result.ok) {
-                        successCount++;
-                        progressMade = true;
-                        if (entry.localId) {
-                            resolvedMap[entry.localId] = result.id;
-                            removePendingRecord(entry.entityType, entry.localId);
-                        }
-                    } else {
-                        entry.attempts = (entry.attempts || 0) + 1;
-                        entry.lastError = result.error || "The server didn't accept this submission.";
-                        stillRemaining.push(entry);
-                    }
-                } catch (e) {
+        for (const entry of q) {
+            try {
+                const ok = await syncOne(entry);
+                if (ok) {
+                    successCount++;
+                } else {
                     entry.attempts = (entry.attempts || 0) + 1;
-                    entry.lastError = "Couldn't reach the server — still offline?";
-                    stillRemaining.push(entry);
+                    entry.lastError = "The server didn't accept this submission.";
+                    remaining.push(entry);
                 }
-                if (onProgress) onProgress(successCount, total);
+            } catch (e) {
+                entry.attempts = (entry.attempts || 0) + 1;
+                entry.lastError = "Couldn't reach the server — still offline?";
+                remaining.push(entry);
             }
-            remaining = stillRemaining;
+            if (onProgress) onProgress(successCount, q.length);
         }
-
         saveQueue(remaining);
         updateBadge();
         return { successCount: successCount, remainingCount: remaining.length };
@@ -312,41 +146,12 @@ const OfflineQueue = (function () {
         form.addEventListener("submit", function (e) {
             if (navigator.onLine) return; // let it submit normally
             e.preventDefault();
-
             const description = describeEntry(form);
-            const entityType = form.dataset.offlineCreates || null;
-            const fields = serializeForm(form);
-            let localId = null;
-
-            if (entityType) {
-                localId = randomLocalId(entityType);
-                fields.push(["offline_token", localId]);
-                const classIdField = fields.find(([k]) => k === "class_id");
-                const meta = classIdField ? { classId: classIdField[1] } : undefined;
-                addPendingRecord(entityType, localId, entityName(form) || description, meta);
-            }
-
-            // A referenced not-yet-synced record can show up either as a
-            // field VALUE (e.g. class_id=local_class_...) or embedded in a
-            // field NAME (Roll Call's status_local_student_... radios,
-            // since there's no separate student_id field on that form) —
-            // so scan both for anything that looks like a local placeholder.
-            const dependsOn = new Set();
-            fields.forEach(([k, v]) => {
-                (String(k).match(LOCAL_ID_PATTERN) || []).forEach((id) => dependsOn.add(id));
-                (String(v).match(LOCAL_ID_PATTERN) || []).forEach((id) => dependsOn.add(id));
-            });
-
             enqueue({
                 action: form.getAttribute("action") || window.location.pathname,
-                fields: fields,
+                fields: serializeForm(form),
                 label: description,
-                entityType: entityType,
-                localId: localId,
-                dependsOn: Array.from(dependsOn),
             });
-
-            populateRefSelects();
             showToast("Saved offline: " + description + ". It will sync automatically once you're back online.");
             form.reset();
         });
@@ -354,7 +159,6 @@ const OfflineQueue = (function () {
 
     function init() {
         document.querySelectorAll('form[data-offline="true"]').forEach(interceptForm);
-        populateRefSelects();
         updateBadge();
         window.addEventListener("online", function () {
             if (queueCount() === 0) return;
@@ -368,15 +172,7 @@ const OfflineQueue = (function () {
         });
     }
 
-    return {
-        init: init,
-        syncAll: syncAll,
-        loadQueue: loadQueue,
-        removeEntry: removeEntry,
-        queueCount: queueCount,
-        populateRefSelects: populateRefSelects,
-        getPendingRecords: getPendingRecords,
-    };
+    return { init: init, syncAll: syncAll, loadQueue: loadQueue, removeEntry: removeEntry, queueCount: queueCount };
 })();
 
 document.addEventListener("DOMContentLoaded", OfflineQueue.init);
