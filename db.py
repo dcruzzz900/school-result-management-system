@@ -505,32 +505,149 @@ def migration_023_school_activation(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_codes_school ON activation_codes(school_id)")
 
 
-def migration_024_user_active_status(conn):
-    """A per-user active/inactive flag, distinct from school-level
-    suspension/archival. Needed for offline login: when a staff account is
-    deactivated, that has to be able to revoke their ability to log in
-    offline on a device that already holds their encrypted offline
-    credential, without suspending the entire school."""
-    ensure_column(conn, "users", "is_active", "INTEGER NOT NULL DEFAULT 1")
+def migration_024_offline_sync(conn):
+    """Offline-first support.
 
+    Every table a device is allowed to create/edit while offline gets three
+    extra columns:
+      - client_uuid: generated on the device the record was first created
+        on (server-side too, for rows that already existed before this
+        migration). This — not the integer id — is what offline sync uses
+        to identify a record, because an offline device can't know what
+        integer id a brand-new row will get until it has synced; using a
+        client-generated UUID as the idempotency key means retrying a push
+        (e.g. after a dropped connection mid-sync) safely upserts instead
+        of creating a duplicate.
+      - updated_at: last-write timestamp, used for conflict detection
+        (last-write-wins with a surfaced warning — see sync_api.py).
+      - is_deleted: soft-delete flag, so a deletion made on one device can
+        be propagated to others on their next pull instead of the row just
+        silently disappearing from a diff.
 
-def migration_025_offline_sync_tokens(conn):
-    """Offline data entry: when a form that CREATES a record (a new class,
-    student, teacher, subject...) is filled out offline, the browser can't
-    know what ID the server will assign until it syncs. If that sync
-    succeeds on the server but the client never sees the response (e.g. the
-    connection drops right after), a naive retry would insert the same
-    record twice. Each offline-created record carries a client-generated
-    token; this table lets the server recognize a repeat of the same token
-    and hand back the original record's ID instead of creating another."""
+    Also adds device_credentials (one row per device a user has enrolled
+    for offline access — see sync_api.py's /api/offline/enroll) and
+    sync_conflicts (a durable record of any push that lost a conflict, so
+    an admin can review and manually reconcile it instead of data being
+    quietly dropped).
+    """
+    syncable_tables = [
+        "students", "scores", "attendance_records", "staff_attendance",
+        "student_term_info", "classes", "subjects", "users",
+        # Read-only reference data an offline device needs cached locally
+        # to build its own dropdowns (current term, which subjects a class
+        # has, etc.) even though it never writes these tables itself.
+        "sessions", "terms", "class_subjects",
+    ]
+    for table in syncable_tables:
+        ensure_column(conn, table, "client_uuid", "TEXT")
+        ensure_column(conn, table, "updated_at", "TEXT")
+        ensure_column(conn, table, "is_deleted", "INTEGER DEFAULT 0")
+        # Backfill: every pre-existing row needs a stable client_uuid so it
+        # can be referenced by future offline pulls/pushes, and an
+        # updated_at so it isn't treated as "changed right now" on every
+        # device's very first pull.
+        conn.execute(
+            f"UPDATE {table} SET client_uuid = lower(hex(randomblob(16))) "
+            f"WHERE client_uuid IS NULL"
+        )
+        conn.execute(
+            f"UPDATE {table} SET updated_at = COALESCE(updated_at, "
+            f"CASE WHEN created_at IS NOT NULL THEN created_at ELSE CURRENT_TIMESTAMP END) "
+            f"WHERE updated_at IS NULL"
+            if "created_at" in column_names(conn, table)
+            else f"UPDATE {table} SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"
+        )
+        conn.execute(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_client_uuid "
+            f"ON {table}(client_uuid) WHERE client_uuid IS NOT NULL"
+        )
+
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS offline_sync_tokens (
-            token TEXT PRIMARY KEY,
-            entity_type TEXT NOT NULL,
-            entity_id INTEGER NOT NULL,
+        CREATE TABLE IF NOT EXISTS device_credentials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            device_id TEXT NOT NULL UNIQUE,
+            device_label TEXT,
+            secret_hash TEXT NOT NULL,
+            role_snapshot TEXT NOT NULL,
+            position_snapshot TEXT,
+            issued_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            last_verified_at TEXT,
+            expires_at TEXT NOT NULL,
+            revoked INTEGER DEFAULT 0,
+            revoked_reason TEXT,
+            FOREIGN KEY(school_id) REFERENCES schools(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_device_credentials_user ON device_credentials(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_device_credentials_school ON device_credentials(school_id)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sync_conflicts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            entity TEXT NOT NULL,
+            client_uuid TEXT NOT NULL,
+            device_id TEXT,
+            client_payload TEXT NOT NULL,
+            server_payload TEXT NOT NULL,
+            detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            resolved INTEGER DEFAULT 0,
+            resolved_at TEXT,
+            resolution TEXT,
+            FOREIGN KEY(school_id) REFERENCES schools(id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_conflicts_school ON sync_conflicts(school_id, resolved)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sync_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            device_id TEXT NOT NULL,
+            user_id INTEGER,
+            direction TEXT NOT NULL,   -- 'push' or 'pull'
+            entity TEXT,
+            record_count INTEGER DEFAULT 0,
+            conflict_count INTEGER DEFAULT 0,
+            error_count INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_log_school ON sync_log(school_id, created_at)")
+
+
+def migration_025_deferred_actions(conn):
+    """Support for the 'Functions Requiring Internet' part of the offline
+    spec: things like emailing results to parents genuinely need a live
+    connection (SMTP) and are never done purely locally, but a device can
+    still QUEUE the request while offline, and it runs automatically the
+    moment the device is back online and syncs — see /api/actions/queue in
+    app.py and SyncEngine.queueAction/pushActions in sync-engine.js.
+
+    This is a log of one-shot commands, not sync-able data: unlike the
+    tables migration_024_offline_sync touches, there's nothing to pull
+    back down to other devices and no "conflict" concept — an action
+    either ran or it didn't."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS deferred_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            device_id TEXT,
+            user_id INTEGER,
+            client_uuid TEXT UNIQUE NOT NULL,
+            action_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed
+            result_message TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            processed_at TEXT,
+            FOREIGN KEY(school_id) REFERENCES schools(id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_deferred_actions_school ON deferred_actions(school_id, created_at)")
 
 
 MIGRATIONS = [
@@ -557,8 +674,8 @@ MIGRATIONS = [
     migration_021_school_subdomain,
     migration_022_result_date_toggle,
     migration_023_school_activation,
-    migration_024_user_active_status,
-    migration_025_offline_sync_tokens,
+    migration_024_offline_sync,
+    migration_025_deferred_actions,
 ]
 
 
@@ -920,6 +1037,116 @@ def log_audit(conn, actor_type, actor_name, action, details=None, school_id=None
     conn.execute(
         "INSERT INTO audit_log (actor_type, actor_name, school_id, action, details) VALUES (?,?,?,?,?)",
         (actor_type, actor_name, school_id, action, details),
+    )
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Offline sync helpers — used by sync_api.py. Kept here alongside the rest
+# of the data-access layer rather than duplicated in the blueprint.
+# ---------------------------------------------------------------------------
+
+OFFLINE_CREDENTIAL_LIFETIME_DAYS = 21  # hard expiry if a device never reconnects
+OFFLINE_SESSION_MAX_HOURS = 12         # how long a decrypted offline unlock is trusted before re-entering the PIN
+
+
+def new_client_uuid():
+    return _secrets.token_hex(16)
+
+
+def now_iso():
+    return _dt.datetime.utcnow().isoformat(timespec="seconds")
+
+
+def issue_device_credential(conn, school_id, user_id, role, position, device_label=None, device_id=None):
+    """Called while the user has a normal, online, authenticated session
+    (see /api/offline/enroll). Generates a random secret that the device
+    will use to prove itself offline; only its hash is kept server-side, so
+    a stolen database dump can't be replayed as a working offline
+    credential. Returns the plaintext secret ONCE — the caller must return
+    it to the device immediately; it is never retrievable again (only
+    re-issuable via a fresh online enrollment)."""
+    device_id = device_id or _secrets.token_hex(12)
+    secret = _secrets.token_urlsafe(32)
+    expires_at = (_dt.datetime.utcnow() + _dt.timedelta(days=OFFLINE_CREDENTIAL_LIFETIME_DAYS)).isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT INTO device_credentials "
+        "(school_id, user_id, device_id, device_label, secret_hash, role_snapshot, position_snapshot, expires_at, last_verified_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(device_id) DO UPDATE SET secret_hash=excluded.secret_hash, "
+        "role_snapshot=excluded.role_snapshot, position_snapshot=excluded.position_snapshot, "
+        "expires_at=excluded.expires_at, revoked=0, revoked_reason=NULL, last_verified_at=excluded.last_verified_at",
+        (school_id, user_id, device_id, device_label, generate_password_hash(secret), role, position, expires_at, now_iso()),
+    )
+    conn.commit()
+    return {"device_id": device_id, "secret": secret, "expires_at": expires_at}
+
+
+def verify_device_credential(conn, device_id, secret):
+    """Checks an offline credential presented by a device trying to sync or
+    re-verify itself. Returns (status, credential_row_or_none).
+    status is one of: 'ok', 'not_found', 'bad_secret', 'revoked', 'expired',
+    'school_suspended', 'school_archived'. On 'ok', extends the credential's
+    expiry (a sliding window — a device that keeps reconnecting periodically
+    never has to fully re-enroll) and records last_verified_at."""
+    from werkzeug.security import check_password_hash as _check
+    cred = conn.execute("SELECT * FROM device_credentials WHERE device_id=?", (device_id,)).fetchone()
+    if not cred:
+        return "not_found", None
+    if not _check(cred["secret_hash"], secret):
+        return "bad_secret", cred
+    if cred["revoked"]:
+        return "revoked", cred
+    if cred["expires_at"] and cred["expires_at"] < now_iso():
+        return "expired", cred
+    school = get_school(conn, cred["school_id"])
+    if school and school["is_suspended"]:
+        return "school_suspended", cred
+    if school and school["is_archived"]:
+        return "school_archived", cred
+    if school and school["activation_status"] != "active":
+        return "school_suspended", cred
+    new_expiry = (_dt.datetime.utcnow() + _dt.timedelta(days=OFFLINE_CREDENTIAL_LIFETIME_DAYS)).isoformat(timespec="seconds")
+    conn.execute(
+        "UPDATE device_credentials SET last_verified_at=?, expires_at=? WHERE id=?",
+        (now_iso(), new_expiry, cred["id"]),
+    )
+    conn.commit()
+    return "ok", cred
+
+
+def revoke_device_credentials_for_user(conn, user_id, reason="revoked by admin"):
+    conn.execute(
+        "UPDATE device_credentials SET revoked=1, revoked_reason=? WHERE user_id=?",
+        (reason, user_id),
+    )
+    conn.commit()
+
+
+def revoke_device_credentials_for_school(conn, school_id, reason="school suspended"):
+    conn.execute(
+        "UPDATE device_credentials SET revoked=1, revoked_reason=? WHERE school_id=?",
+        (reason, school_id),
+    )
+    conn.commit()
+
+
+def record_sync_conflict(conn, school_id, entity, client_uuid, device_id, client_payload, server_payload):
+    import json as _json
+    conn.execute(
+        "INSERT INTO sync_conflicts (school_id, entity, client_uuid, device_id, client_payload, server_payload) "
+        "VALUES (?,?,?,?,?,?)",
+        (school_id, entity, client_uuid, device_id,
+         _json.dumps(client_payload, default=str), _json.dumps(server_payload, default=str)),
+    )
+    conn.commit()
+
+
+def record_sync_log(conn, school_id, device_id, user_id, direction, entity, record_count=0, conflict_count=0, error_count=0):
+    conn.execute(
+        "INSERT INTO sync_log (school_id, device_id, user_id, direction, entity, record_count, conflict_count, error_count) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (school_id, device_id, user_id, direction, entity, record_count, conflict_count, error_count),
     )
     conn.commit()
 
