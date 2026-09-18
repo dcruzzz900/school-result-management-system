@@ -1,37 +1,42 @@
 # Updating Your Live Site With This New Version
 
 You already have this app deployed and working on PythonAnywhere. This is a
-small update — no schema changes, no new files. It upgrades your live
-database in place with **zero data loss**.
+small update — no schema changes, no new external dependencies.
 
 ## What's new in this update
 
-Fully wires up offline data entry so staff can keep working with no
-connection and have it sync automatically once they're back online.
+**Multi-school data isolation hardening**, specifically for the offline
+layer — this only matters if the same phone/computer is ever used to log
+into more than one school's account (e.g. someone who administers two
+schools, or a shared device at an IT provider).
 
-- **Pages now open while fully offline.** Previously, only form
-  *submissions* were queued while offline — but if you opened Score Entry,
-  Roll Call, or any admin form fresh with zero connectivity, you'd just see
-  a "please reconnect" message instead of the form. Now, any page that's
-  been opened once while online is cached and can be reopened offline after
-  that, with the data as it was at last load.
-- **Logins now last 30 days** instead of ending whenever the browser or
-  app is closed. This matters for offline use — without it, a teacher who's
-  offline for a stretch (weekend, poor signal for a few days) could get
-  logged out, and their queued offline entries would fail to sync silently
-  once back online, with no login screen to tell them why.
-- No changes to the offline queue itself (Score Entry, Roll Call, Update
-  Comments/Attendance, and the admin add/edit forms) — that queuing and
-  auto-sync was already working; this update makes sure the pages behind it
-  are actually reachable offline too.
+- Offline drafts (Score Entry, Roll Call, new students/classes, etc. saved
+  while offline) are now kept separate per school on the device. Before
+  this update, they were stored in one shared bucket — a different
+  school's login on the same device could technically see another
+  school's queued drafts sitting in the Offline Queue page, even though
+  the server would always still refuse to actually save them under the
+  wrong school.
+- Cached pages are now wiped the moment a *different* school logs in on a
+  device than the one last used there. This matters because a cached page
+  is served with zero server contact when offline — so without this, a
+  stale page from School A's session could in principle be served if
+  School B's account is used on that device later while offline. (The
+  offline lock screen already required knowing that specific account's
+  password to view a cached page, so this wasn't wide open — this closes
+  it properly rather than relying on that.)
+- If a device already had drafts queued from before this update, they're
+  carried over into whichever school first loads the update on that
+  device, rather than silently disappearing.
 
-**One inherent limit worth knowing:** a page has to be opened at least once
-while online before it can be opened offline. There's no way around this —
-the device has to receive the page from the server before it can show it
-without one. So the recommended habit for staff: open your Score Entry and
-Roll Call pages for your usual classes once while you still have signal
-(e.g. at the start of the term), and they'll stay available offline from
-then on.
+**Worth knowing:** this hardens *school-to-school* isolation specifically,
+since that's what carries real risk (different organizations, potentially
+different people entirely). It doesn't add separate cache isolation
+between two different staff *at the same school* sharing a device — e.g.
+an admin's cached page could still be offline-visible if a regular teacher
+uses the same device next, same as before this update. That's a smaller,
+same-school concern rather than a cross-school data leak, and isn't
+addressed by this phase.
 
 ## Steps
 
@@ -64,15 +69,20 @@ then on.
 7. Go to the **Web** tab and click the big green **Reload** button.
 8. On a phone that already has this app installed/bookmarked, do a full
    refresh once (pull-to-refresh or close and reopen the tab/app) so it
-   picks up the new service worker — it auto-updates in the background
-   otherwise, just not instantly.
-9. While still online, open Score Entry and Roll Call for each class staff
-   will need, so those pages get cached for offline use.
-10. Test it: turn on Airplane Mode, open a previously-visited Score Entry
-    or Roll Call page, make an entry, and save. You should see a "Saved
-    offline" toast. Turn Airplane Mode back off and either wait a moment or
-    visit **Offline Queue** (in Settings) and tap **Sync Now** — the entry
-    should disappear from the queue once it's synced.
+   picks up the updated scripts.
+9. Test it (needs two schools/accounts to check properly):
+   - Log in as School A, queue an offline draft (e.g. add a student while
+     in Airplane Mode), then go online and let it sync, or leave it queued.
+   - Log out, log in as School B (online) on the *same* browser.
+   - Open **Offline Queue** as School B — it should be empty, even if
+     School A still has something queued from before it synced.
+   - Log back in as School A — their queued item (if any) should still be
+     there, untouched.
 
 If anything looks off after reloading, check the **Error log** link on the
 Web tab and paste me what it says.
+
+
+
+
+
