@@ -335,6 +335,112 @@ ENTITIES = {
 }
 
 
+def _scoped_sql(entity, identity):
+    """Returns (from_clause, where_sql, params) with tenant + per-role
+    scoping expressed directly in SQL (joins + WHERE), rather than
+    fetched-then-filtered-in-Python. This is what makes real pagination
+    possible: a LIMIT/OFFSET only means something if the WHERE clause
+    already reflects exactly which rows the caller may see — an offset
+    computed against an unfiltered table would skip or repeat rows once
+    Python-side filtering was layered on afterwards.
+
+    `params` covers everything up to but not including `since`, which
+    callers append themselves (its column name differs per entity's FROM
+    clause alias)."""
+    role, school_id, user_id = identity["role"], identity["school_id"], identity["user_id"]
+    is_admin = role in ADMIN_ROLES
+
+    if entity == "students":
+        base = "FROM students s JOIN classes c ON c.id = s.class_id"
+        if is_admin:
+            return base, "c.school_id = ?", [school_id]
+        return base, "c.school_id = ? AND c.form_teacher_id = ?", [school_id, user_id]
+
+    if entity == "scores":
+        base = "FROM scores x JOIN students s ON s.id = x.student_id JOIN classes c ON c.id = s.class_id"
+        if is_admin:
+            return base, "c.school_id = ?", [school_id]
+        return base, "c.school_id = ? AND c.id IN (SELECT class_id FROM class_subjects WHERE teacher_id = ?)", [school_id, user_id]
+
+    if entity == "attendance_records":
+        base = "FROM attendance_records x JOIN classes c ON c.id = x.class_id"
+        if is_admin:
+            return base, "c.school_id = ?", [school_id]
+        return base, "c.school_id = ? AND c.form_teacher_id = ?", [school_id, user_id]
+
+    if entity == "student_term_info":
+        base = "FROM student_term_info x JOIN students s ON s.id = x.student_id JOIN classes c ON c.id = s.class_id"
+        if is_admin:
+            return base, "c.school_id = ?", [school_id]
+        return base, "c.school_id = ? AND c.form_teacher_id = ?", [school_id, user_id]
+
+    if entity == "staff_attendance":
+        return "FROM staff_attendance x", "x.school_id = ?", [school_id]
+
+    if entity == "users":
+        return "FROM users x", "x.school_id = ?", [school_id]
+
+    if entity == "classes":
+        return "FROM classes x", "x.school_id = ?", [school_id]
+
+    if entity == "subjects":
+        return "FROM subjects x", "x.school_id = ?", [school_id]
+
+    if entity == "sessions":
+        return "FROM sessions x", "x.school_id = ?", [school_id]
+
+    if entity == "terms":
+        return "FROM terms x JOIN sessions se ON se.id = x.session_id", "se.school_id = ?", [school_id]
+
+    if entity == "class_subjects":
+        return "FROM class_subjects x JOIN classes c ON c.id = x.class_id", "c.school_id = ?", [school_id]
+
+    raise ValueError(f"no scoped query defined for entity '{entity}'")
+
+
+# Which alias each entity's base query uses for its own columns — 'students'
+# selects via alias 's' (since 's' was already taken by the joined
+# students table in scores/attendance_records/student_term_info, those
+# use 'x' for their OWN table and 's' for the joined students table).
+_ENTITY_SELF_ALIAS = {
+    "students": "s", "scores": "x", "attendance_records": "x",
+    "student_term_info": "x", "staff_attendance": "x", "users": "x",
+    "classes": "x", "subjects": "x", "sessions": "x", "terms": "x",
+    "class_subjects": "x",
+}
+
+PAGE_SIZE = 500
+MAX_PAGE_SIZE = 2000
+
+
+def _read_entity_page(conn, name, identity, since, limit, offset):
+    """Returns (rows, has_more). Fetches `limit + 1` rows so "is there
+    another page" is a free byproduct of this query instead of a second
+    COUNT(*) round trip; the +1th row (if present) is trimmed before
+    returning."""
+    alias = _ENTITY_SELF_ALIAS[name]
+    from_clause, where_sql, params = _scoped_sql(name, identity)
+    # client_uuid should never actually be NULL here — migration_026's
+    # triggers guarantee every row gets one, however it was inserted —
+    # but a NULL value is not a valid IndexedDB key, so this filter is a
+    # defense-in-depth belt against a row somehow still slipping through
+    # (e.g. a future migration order issue) breaking a device's bootstrap
+    # entirely rather than just quietly omitting that one row.
+    conditions = [where_sql, f"{alias}.client_uuid IS NOT NULL"]
+    if since:
+        conditions.append(f"{alias}.updated_at > ?")
+        params.append(since)
+    else:
+        conditions.append(f"{alias}.is_deleted = 0")
+    sql = (
+        f"SELECT {alias}.* {from_clause} WHERE " + " AND ".join(conditions) +
+        f" ORDER BY {alias}.id LIMIT ? OFFSET ?"
+    )
+    rows = conn.execute(sql, params + [limit + 1, offset]).fetchall()
+    has_more = len(rows) > limit
+    return [dict(r) for r in rows[:limit]], has_more
+
+
 def _row_school_id(conn, entity_name, row):
     cfg = ENTITIES[entity_name]
     if cfg["school_col"] == "direct":
@@ -448,33 +554,30 @@ def verify():
 @require_identity
 def bootstrap():
     conn, identity = g.sync_conn, g.sync_identity
+    limit = min(int(request.args.get("limit", PAGE_SIZE) or PAGE_SIZE), MAX_PAGE_SIZE)
+    cursor_raw = request.args.get("cursor")
+    offsets = json.loads(cursor_raw)["offsets"] if cursor_raw else {}
+
     out = {"generated_at": now_iso(), "entities": {}}
+    next_offsets = {}
     for name, cfg in ENTITIES.items():
         if identity["role"] not in cfg["can_read"]:
             continue
-        out["entities"][name] = _read_entity(conn, name, identity, since=None)
-    record_sync_log(conn, identity["school_id"], identity.get("device_id") or "online", identity["user_id"], "pull", "bootstrap", sum(len(v) for v in out["entities"].values()))
+        offset = offsets.get(name, 0)
+        rows, has_more = _read_entity_page(conn, name, identity, since=None, limit=limit, offset=offset)
+        if rows:
+            out["entities"][name] = rows
+        if has_more:
+            next_offsets[name] = offset + limit
+    if next_offsets:
+        # There's more data than fit in this page for at least one
+        # entity — the client is expected to call this same endpoint
+        # again with ?cursor=<this value> to keep going, rather than this
+        # response trying to hold an entire large school's data at once.
+        out["cursor"] = json.dumps({"offsets": next_offsets})
+    record_sync_log(conn, identity["school_id"], identity.get("device_id") or "online", identity["user_id"],
+                     "pull", "bootstrap", sum(len(v) for v in out["entities"].values()))
     return jsonify(out)
-
-
-def _read_entity(conn, name, identity, since):
-    cfg = ENTITIES[name]
-    where = ["is_deleted=0" if since is None else "1=1"]
-    params = []
-    if cfg["school_col"] == "direct":
-        where.append("school_id=?")
-        params.append(identity["school_id"])
-    if since:
-        where.append("updated_at > ?")
-        params.append(since)
-    sql = f"SELECT * FROM {cfg['table']} WHERE " + " AND ".join(where)
-    rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-    # Joined tables (no direct school_id) and per-teacher scoping both need
-    # filtering in Python since the SQL above can't express either cheaply
-    # in a way that stays generic across entities.
-    rows = [r for r in rows if _row_school_id(conn, name, r) == identity["school_id"]]
-    rows = [r for r in rows if _in_scope(conn, name, identity, r)]
-    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -487,13 +590,25 @@ def pull():
     conn, identity = g.sync_conn, g.sync_identity
     since = request.args.get("since")
     entity_filter = request.args.get("entity")
+    limit = min(int(request.args.get("limit", PAGE_SIZE) or PAGE_SIZE), MAX_PAGE_SIZE)
+    cursor_raw = request.args.get("cursor")
+    offsets = json.loads(cursor_raw)["offsets"] if cursor_raw else {}
+
     out = {"generated_at": now_iso(), "entities": {}}
+    next_offsets = {}
     for name, cfg in ENTITIES.items():
         if entity_filter and name != entity_filter:
             continue
         if identity["role"] not in cfg["can_read"]:
             continue
-        out["entities"][name] = _read_entity(conn, name, identity, since=since)
+        offset = offsets.get(name, 0)
+        rows, has_more = _read_entity_page(conn, name, identity, since=since, limit=limit, offset=offset)
+        if rows:
+            out["entities"][name] = rows
+        if has_more:
+            next_offsets[name] = offset + limit
+    if next_offsets:
+        out["cursor"] = json.dumps({"offsets": next_offsets})
     return jsonify(out)
 
 

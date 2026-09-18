@@ -650,6 +650,71 @@ def migration_025_deferred_actions(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_deferred_actions_school ON deferred_actions(school_id, created_at)")
 
 
+def migration_026_sync_triggers(conn):
+    """migration_024_offline_sync added client_uuid/updated_at/is_deleted
+    to every syncable table and backfilled existing rows — but that
+    backfill only covered rows that existed AT THAT MOMENT. Every one of
+    this app's existing add-student/add-class/add-teacher/enter-scores/
+    take-attendance/add-comment routes was written before offline sync
+    existed and simply doesn't set these columns on INSERT, and doesn't
+    bump updated_at on UPDATE either. Two concrete failures that causes:
+
+      1. A record created through the normal online UI has client_uuid
+         IS NULL. Pulled to an offline device, IndexedDB rejects it (NULL
+         is not a valid key for a keyPath store) — sync breaks for that
+         row.
+      2. A record edited through the normal online UI doesn't bump
+         updated_at. The offline conflict check in sync_api.py compares
+         a device's last-known updated_at to the server's current one;
+         if an online edit doesn't change it, a stale offline edit would
+         look "not conflicting" and silently overwrite the online one.
+
+    Auditing and fixing every INSERT/UPDATE site across this codebase
+    would be fragile (easy to miss one, easy for a future route to
+    reintroduce the gap). Triggers fix it at the one place it can't be
+    bypassed: the table itself, regardless of which code path writes to
+    it, sync-aware or not.
+
+    The UPDATE trigger only fires `WHEN NEW.updated_at IS OLD.updated_at`
+    — i.e. only when the UPDATE statement didn't already set updated_at
+    itself — so it never clobbers the value sync_api.py's push endpoint
+    explicitly computes and returns to the client.
+    """
+    tables = [
+        "students", "scores", "attendance_records", "staff_attendance",
+        "student_term_info", "classes", "subjects", "users",
+        "sessions", "terms", "class_subjects",
+    ]
+    for table in tables:
+        # One more backfill sweep — covers any row inserted between
+        # migration_024 and now through a not-yet-trigger-protected path
+        # (e.g. seed() running after migration_024's one-time backfill).
+        conn.execute(f"UPDATE {table} SET client_uuid = lower(hex(randomblob(16))) WHERE client_uuid IS NULL")
+        conn.execute(f"UPDATE {table} SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE updated_at IS NULL")
+
+        conn.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{table}_sync_defaults
+            AFTER INSERT ON {table}
+            FOR EACH ROW
+            WHEN NEW.client_uuid IS NULL OR NEW.updated_at IS NULL
+            BEGIN
+                UPDATE {table} SET
+                    client_uuid = COALESCE(NEW.client_uuid, lower(hex(randomblob(16)))),
+                    updated_at = COALESCE(NEW.updated_at, strftime('%Y-%m-%dT%H:%M:%S','now'))
+                WHERE id = NEW.id;
+            END
+        """)
+        conn.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{table}_sync_touch
+            AFTER UPDATE ON {table}
+            FOR EACH ROW
+            WHEN NEW.updated_at IS OLD.updated_at
+            BEGIN
+                UPDATE {table} SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE id = NEW.id;
+            END
+        """)
+
+
 MIGRATIONS = [
     migration_001_baseline,
     migration_002_multi_school,
@@ -676,6 +741,7 @@ MIGRATIONS = [
     migration_023_school_activation,
     migration_024_offline_sync,
     migration_025_deferred_actions,
+    migration_026_sync_triggers,
 ]
 
 

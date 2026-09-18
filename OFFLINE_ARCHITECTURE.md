@@ -256,6 +256,44 @@ when the connection returns" requirement.
 4. Nothing else needs to change — push/pull/conflict handling is fully
    generic.
 
+### 6. Pagination (bootstrap / pull at scale)
+
+`bootstrap`/`pull` are cursor-paginated (`sync_api.py`'s `PAGE_SIZE`,
+500 rows/entity/page by default, capped at `MAX_PAGE_SIZE`=2000). Scoping
+(tenant isolation + per-role visibility) is expressed directly in SQL via
+joins (`_scoped_sql`) rather than fetched-then-filtered in Python — this
+is what makes LIMIT/OFFSET pagination actually correct: filtering after
+the fact would make "page 3" mean a different, shifting set of rows
+depending on how many got excluded by the scope check on earlier pages.
+`SyncEngine.bootstrap()`/`pullDeltas()` on the client loop on the
+returned `cursor` until every entity is exhausted. Verified by test: 28
+students paginated at page size 10 (3 pages) are collected exactly once,
+with no gaps or duplicates.
+
+**A genuinely important bug this surfaced and fixed**: this app's
+*existing* online routes (add student, add class, enter scores, take
+attendance, add comments — all written before offline sync existed)
+never set `client_uuid`/`updated_at` on insert, and never bumped
+`updated_at` on update. Two real consequences: (1) a record created
+through the normal UI would have `client_uuid IS NULL`, which is not a
+valid IndexedDB key — bootstrap would break trying to store it; (2) an
+online edit that didn't bump `updated_at` would look "unchanged" to the
+conflict check, so a stale offline edit could silently overwrite it
+without being flagged as a conflict. Auditing every INSERT/UPDATE site
+across a 4,500-line app to fix this by hand would be fragile — easy to
+miss one, easy for a future route to reintroduce the gap. Fixed instead
+with SQLite triggers (`migration_026_sync_triggers` in `db.py`) on every
+syncable table: an `AFTER INSERT` trigger fills in `client_uuid`/
+`updated_at` if the inserting statement left them NULL, and an
+`AFTER UPDATE` trigger bumps `updated_at` — but only
+`WHEN NEW.updated_at IS OLD.updated_at`, i.e. only when the UPDATE
+statement didn't already set it itself, so it never clobbers the exact
+value `sync_api.py`'s push endpoint computes and returns to the client.
+This protects every code path, present and future, sync-aware or not —
+verified by test (a bare INSERT/UPDATE with no offline-sync awareness at
+all, exactly mimicking what the existing routes do, correctly gets
+`client_uuid` filled in and `updated_at` bumped either way).
+
 ## Security notes / limitations to know about
 
 - The offline PIN is a **local convenience credential**, not a
@@ -276,9 +314,9 @@ when the connection returns" requirement.
 - The push endpoint caps a batch at 500 changes; a device with a very
   large backlog will need multiple sync cycles (the engine already
   batches in groups of 50 client-side, well under that limit).
-- `bootstrap`/`pull` are not paginated. For a very large school (many
-  thousands of students/scores) this should be paginated before going to
-  production — flagged here rather than silently left in.
+- `bootstrap`/`pull` are cursor-paginated (see "Pagination" above) —
+  this was the one item flagged as a known gap in an earlier pass, and
+  is now fixed and tested.
 - This was tested with Flask's test client against the real SQLite
   schema/migrations (enrollment → bootstrap → offline create/update →
   conflict → cross-school rejection → revocation), not manually clicked
