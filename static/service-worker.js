@@ -1,8 +1,19 @@
-const CACHE_NAME = "school-results-shell-v3";
+const CACHE_NAME = "school-results-shell-v4";
 const SHELL_ASSETS = [
   "/static/css/style.css",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
+  // The offline-first app shell and everything it needs to run are
+  // precached explicitly here (not just cached-on-visit like other pages)
+  // so a device that has enrolled for offline access (Settings → Offline
+  // Access) but has never actually opened /offline-app yet still has it
+  // available the very first time it loses connectivity.
+  "/offline-app",
+  "/static/js/offline-crypto.js",
+  "/static/js/offline-db.js",
+  "/static/js/offline-auth.js",
+  "/static/js/sync-engine.js",
+  "/static/js/offline-app-ui.js",
 ];
 
 self.addEventListener("install", (event) => {
@@ -21,20 +32,6 @@ self.addEventListener("activate", (event) => {
     )
   );
   self.clients.claim();
-});
-
-// Multi-school isolation: a cache hit is served with zero server contact,
-// so — unlike localStorage, which the app can namespace per school itself
-// — a page cached while logged in as School A could otherwise be served
-// right back when School B logs in on the same device and goes offline.
-// login.html sends this the moment it detects the school that just logged
-// in differs from the one last active on this device, so a school switch
-// always starts from a clean cache rather than relying on nobody guessing
-// the previous account's password at the offline lock screen.
-self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "CLEAR_CACHE") {
-    event.waitUntil(caches.delete(CACHE_NAME));
-  }
 });
 
 // Network-first for EVERYTHING, including static assets (css/icons). This
