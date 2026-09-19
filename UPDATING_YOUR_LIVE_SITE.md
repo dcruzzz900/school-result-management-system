@@ -1,48 +1,37 @@
 # Updating Your Live Site With This New Version
 
 You already have this app deployed and working on PythonAnywhere. This is a
-small update — no schema changes, no new external dependencies.
+small update — no schema changes, no new files. It upgrades your live
+database in place with **zero data loss**.
 
 ## What's new in this update
 
-**Graceful degradation for online-only features.** This app's only
-genuinely online-only actions are the two "email result to parent" buttons
-(SMTP has to reach an actual mail server) — there's no payments, AI
-features, or cloud backup in this app to degrade, so this phase is scoped
-to what actually exists.
+Fully wires up offline data entry so staff can keep working with no
+connection and have it sync automatically once they're back online.
 
-- **Email to Parent** (on a student's Result page) and **Email All Results
-  to Parents** (on a class's Broadsheet page) now queue automatically if
-  you click them while offline, instead of failing with a browser network
-  error. They'll actually send once you're back online — same Offline
-  Queue mechanism as everything else, with wording that says "queued to
-  send" rather than "will sync", since that's a clearer way to describe
-  what's actually about to happen.
-- Both are now protected against sending twice: if a send actually goes
-  through on the server but your device never sees the confirmation
-  (connection drops right after), retrying it recognizes the repeat and
-  skips resending rather than emailing the parent a duplicate. I tested
-  this directly — simulating "this already sent" and confirming a retry
-  returns the same success message without attempting to send again.
-- Every offline-queued action (not just these two) now carries a one-time
-  token for the same reason, so this same protection is available to any
-  future online-only or side-effecting action added later, not just email.
+- **Pages now open while fully offline.** Previously, only form
+  *submissions* were queued while offline — but if you opened Score Entry,
+  Roll Call, or any admin form fresh with zero connectivity, you'd just see
+  a "please reconnect" message instead of the form. Now, any page that's
+  been opened once while online is cached and can be reopened offline after
+  that, with the data as it was at last load.
+- **Logins now last 30 days** instead of ending whenever the browser or
+  app is closed. This matters for offline use — without it, a teacher who's
+  offline for a stretch (weekend, poor signal for a few days) could get
+  logged out, and their queued offline entries would fail to sync silently
+  once back online, with no login screen to tell them why.
+- No changes to the offline queue itself (Score Entry, Roll Call, Update
+  Comments/Attendance, and the admin add/edit forms) — that queuing and
+  auto-sync was already working; this update makes sure the pages behind it
+  are actually reachable offline too.
 
-## This completes the offline-first requirements
-
-With this phase, everything originally asked for has been built and
-tested: offline login with encrypted local credentials and role/expiry
-handling, full offline data entry including brand-new records created
-offline, offline scores/attendance/subject-assignment for those new
-records, offline result viewing with a live preview of unsynced changes,
-multi-school data isolation on the device, and now graceful handling of
-the app's one online-only feature (email).
-
-**Worth keeping in mind going forward:** this was all built and tested in
-a local sandbox, not against your live PythonAnywhere deployment or a real
-phone. Test each piece for real on an actual device before relying on it
-for daily use — especially the offline login and multi-school isolation
-pieces, since those touch how staff actually access the app.
+**One inherent limit worth knowing:** a page has to be opened at least once
+while online before it can be opened offline. There's no way around this —
+the device has to receive the page from the server before it can show it
+without one. So the recommended habit for staff: open your Score Entry and
+Roll Call pages for your usual classes once while you still have signal
+(e.g. at the start of the term), and they'll stay available offline from
+then on.
 
 ## Steps
 
@@ -75,22 +64,15 @@ pieces, since those touch how staff actually access the app.
 7. Go to the **Web** tab and click the big green **Reload** button.
 8. On a phone that already has this app installed/bookmarked, do a full
    refresh once (pull-to-refresh or close and reopen the tab/app) so it
-   picks up the updated scripts.
-9. Test it:
-   - Turn on Airplane Mode.
-   - Open a student's Result page and click **Email to Parent** — you
-     should see a "Queued: ... It'll be sent once you're back online"
-     toast instead of a network error.
-   - Turn Airplane Mode back off, open **Offline Queue**, tap **Sync
-     Now** — it should show as sent (check your school's email settings
-     are configured under Setup → Email Settings for the actual send to
-     succeed, same as it always required).
+   picks up the new service worker — it auto-updates in the background
+   otherwise, just not instantly.
+9. While still online, open Score Entry and Roll Call for each class staff
+   will need, so those pages get cached for offline use.
+10. Test it: turn on Airplane Mode, open a previously-visited Score Entry
+    or Roll Call page, make an entry, and save. You should see a "Saved
+    offline" toast. Turn Airplane Mode back off and either wait a moment or
+    visit **Offline Queue** (in Settings) and tap **Sync Now** — the entry
+    should disappear from the queue once it's synced.
 
 If anything looks off after reloading, check the **Error log** link on the
 Web tab and paste me what it says.
-
-
-
-
-
-

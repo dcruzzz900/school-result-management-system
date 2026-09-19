@@ -294,6 +294,53 @@ verified by test (a bare INSERT/UPDATE with no offline-sync awareness at
 all, exactly mimicking what the existing routes do, correctly gets
 `client_uuid` filled in and `updated_at` bumped either way).
 
+## Real-browser verification
+
+Everything above was, until this pass, verified only through Flask's
+test client and Node-based logic harnesses — thorough for correctness,
+but not the same as a browser actually running the service worker,
+IndexedDB, and WebCrypto. This was closed out with Playwright driving a
+real headless Chromium against a live copy of this app, using
+`context.set_offline(True)` (a real network-level cutoff, not just
+flipping `navigator.onLine`). Confirmed, for real:
+
+- Enrollment, PIN encryption, and service worker install all complete
+  successfully in a real browser (`navigator.serviceWorker.ready`
+  resolves, `registration.active.state === "activated"`).
+- A wrong PIN is rejected (AES-GCM decryption genuinely fails) and the
+  correct PIN works right after.
+- `/offline-app` loads with **zero network** on a cold navigation —
+  proof the service worker precache actually works, not just in theory.
+- A class and a student registered into it, in the same offline
+  session, both sync correctly on reconnect with the student's
+  `class_id` resolved to the class's real server id (the dependency-safe
+  creation feature, end to end, in a real browser).
+- A hard page reload while still offline preserves both the unlocked
+  session (via `sessionStorage`, which survives a reload — it's cleared
+  only on tab/browser close) and all local IndexedDB data.
+
+This process found and fixed two real bugs that no amount of headless
+logic testing would have caught:
+
+1. **Success messages were invisible.** The class/subject/teacher
+   management screens called a full-screen re-render immediately after
+   setting their own "Saved" message, wiping it out before it could ever
+   be seen. Fixed by refreshing only the results list in place (matching
+   the pattern already used correctly by Attendance/Score Entry),
+   leaving the form and message untouched.
+2. **A not-yet-synced class could leak into the wrong screens.** A class
+   created offline (no server id yet) correctly shows up — labeled "not
+   yet synced" — in Student Registration and Class Management, where
+   dependency-safe creation is the point. But it was also appearing in
+   Attendance, Score Entry, and Comments, where it doesn't belong: those
+   are tied to a class by a plain foreign key with no pending-ref
+   resolution, so selecting it would silently try to save a record with
+   `class_id: undefined`. Fixed by filtering those three screens to
+   already-synced classes only, with a message telling the user to
+   connect once online first (or use Manage Classes and wait for it to
+   sync) — the same boundary already established correctly in the
+   Actions Queue screen.
+
 ## Security notes / limitations to know about
 
 - The offline PIN is a **local convenience credential**, not a

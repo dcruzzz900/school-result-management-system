@@ -1,6 +1,6 @@
 from flask import (
     Flask, render_template, request, redirect, url_for, session, flash,
-    send_file, send_from_directory, g,
+    send_file, send_from_directory, g, jsonify,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -26,12 +26,14 @@ from db import (
     generate_teacher_comment, generate_principal_comment,
     CLASS_CATEGORIES, MATERIAL_KINDS, format_dmy, STAFF_ATTENDANCE_STATUSES,
     PDF_FONT_CHOICES, WEB_FONTS, generate_activation_code, current_activation_code_status,
-    verify_activation_code,
+    verify_activation_code, revoke_device_credentials_for_user, revoke_device_credentials_for_school,
 )
 import datetime
+import json
 from pdf_utils import build_broadsheet_pdf, build_result_pdf, build_class_results_pdf, build_cumulative_result_pdf, build_generic_table_pdf
 from email_utils import send_email, send_platform_email
 from reports import build_csv, build_xlsx
+from sync_api import sync_bp
 
 ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
@@ -106,6 +108,35 @@ app.jinja_env.globals["csrf_token"] = get_csrf_token
 def _check_csrf():
     if request.method not in CSRF_UNSAFE_METHODS:
         return None
+    if request.path.startswith("/api/"):
+        # The offline sync API is JSON-only and authenticated one of two
+        # ways, neither of which is vulnerable to classic cookie-riding
+        # CSRF the way a form POST is:
+        #   - a device credential sent as custom headers (X-Device-Id /
+        #     X-Device-Secret) — a cross-site page can't attach arbitrary
+        #     headers to a simple form submission, and reading them back
+        #     out of the device's encrypted local storage requires
+        #     same-origin JS in the first place;
+        #   - the normal session cookie, for the one endpoint that's used
+        #     before a device has a credential yet (/api/offline/enroll) —
+        #     that path is checked below via an explicit header instead of
+        #     the form field, since it's a JSON body rather than a form.
+        if request.headers.get("X-Device-Id") and request.headers.get("X-Device-Secret"):
+            return None
+        if request.path == "/api/offline/verify":
+            # Authenticated entirely by knowledge of the device_secret in
+            # the JSON body (checked against its stored hash inside the
+            # handler) — there's deliberately no session/cookie involved
+            # here, since the whole point is to work for a device that
+            # only just regained connectivity and hasn't necessarily
+            # logged in online this session.
+            return None
+        if "user_id" in session:
+            submitted = request.headers.get("X-CSRF-Token", "")
+            expected = session.get("_csrf_token", "")
+            if expected and secrets.compare_digest(submitted, expected):
+                return None
+        return jsonify({"error": "csrf_check_failed"}), 403
     submitted = request.form.get("csrf_token", "")
     expected = session.get("_csrf_token", "")
     if not expected or not secrets.compare_digest(submitted, expected):
@@ -115,6 +146,7 @@ def _check_csrf():
 
 
 app.jinja_env.filters["dmy"] = format_dmy
+app.register_blueprint(sync_bp)
 
 
 @app.route("/csrf-token")
@@ -260,35 +292,6 @@ def login_required(*roles):
 
 def current_school_id():
     return session.get("school_id")
-
-
-def offline_sync_existing_id(conn, token):
-    """If this offline-created record was already synced under this token
-    (e.g. an earlier attempt succeeded but the client never saw the
-    response), return its id so the caller can reuse it instead of
-    inserting a duplicate."""
-    if not token:
-        return None
-    row = conn.execute("SELECT entity_id FROM offline_sync_tokens WHERE token=?", (token,)).fetchone()
-    return row["entity_id"] if row else None
-
-
-def offline_sync_remember(conn, token, entity_type, entity_id):
-    if not token:
-        return
-    conn.execute(
-        "INSERT OR IGNORE INTO offline_sync_tokens (token, entity_type, entity_id) VALUES (?,?,?)",
-        (token, entity_type, entity_id),
-    )
-    conn.commit()
-
-
-def is_offline_sync_request():
-    """The offline queue marks its replayed requests with this header so
-    create-endpoints know to respond with {ok, id} JSON (which the queue
-    needs to resolve dependent, not-yet-synced records) instead of the
-    normal flash-and-redirect a live browser submission gets."""
-    return request.headers.get("X-Offline-Sync") == "1"
 
 
 def current_term(conn):
@@ -530,10 +533,6 @@ def login():
         conn = get_db()
         user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         if user and check_password_hash(user["password_hash"], password):
-            if not user["is_active"]:
-                conn.close()
-                flash("This account has been deactivated. Contact your school admin.", "error")
-                return render_template("login.html")
             school = get_school(conn, user["school_id"])
             conn.close()
             if school and school["activation_status"] != "active":
@@ -550,7 +549,6 @@ def login():
                 return render_template("login.html")
             session.permanent = True
             session["user_id"] = user["id"]
-            session["username"] = user["username"]
             session["name"] = user["name"]
             session["role"] = user["role"]
             session["position"] = user["position"]
@@ -566,47 +564,6 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("login"))
-
-
-@app.route("/offline-auth/bundle")
-@login_required()
-def offline_auth_bundle():
-    """Called by the browser right after a successful ONLINE login (see
-    login.html), while the plaintext password is still briefly in memory
-    client-side. The client encrypts this payload with a key derived from
-    that password and stores only the encrypted blob — this endpoint never
-    sees or handles the password itself. The payload is what a device can
-    show (role, position, school) when unlocking offline later, without
-    ever contacting the server."""
-    now = datetime.datetime.utcnow()
-    return {
-        "user_id": session["user_id"],
-        "username": session.get("username"),
-        "name": session.get("name"),
-        "role": session.get("role"),
-        "position": session.get("position"),
-        "school_id": session.get("school_id"),
-        "issued_at": now.isoformat(timespec="seconds") + "Z",
-        "expires_at": (now + datetime.timedelta(days=OFFLINE_LOGIN_MAX_AGE_DAYS)).isoformat(timespec="seconds") + "Z",
-    }
-
-
-@app.route("/offline-auth/status")
-@login_required()
-def offline_auth_status():
-    """Polled by the browser the moment it detects it's back online (see
-    base.html). If the account was deactivated or the school suspended/
-    archived while the device was offline, this tells the client to wipe
-    its locally-stored offline credential immediately, so a device can't
-    keep unlocking offline access to an account that's since been cut off."""
-    conn = get_db()
-    user = conn.execute("SELECT is_active FROM users WHERE id=?", (session["user_id"],)).fetchone()
-    school = get_school(conn, session.get("school_id"))
-    conn.close()
-    active = bool(user) and bool(user["is_active"])
-    if active and school:
-        active = school["activation_status"] == "active" and not school["is_archived"] and not school["is_suspended"]
-    return {"active": active}
 
 
 @app.route("/account/password", methods=["GET", "POST"])
@@ -644,13 +601,6 @@ SECURITY_QUESTIONS = [
     "What was the name of your first pet?",
     "What town were you born in?",
 ]
-
-# How long an offline-unlockable credential is valid for before a device
-# needs a real online login again to renew it. Deliberately shorter than
-# the 30-day online session so a lost/stolen device's offline access window
-# closes faster than its online one.
-OFFLINE_LOGIN_MAX_AGE_DAYS = 14
-
 
 POSITION_CHOICES = [
     ("principal", "Principal"),
@@ -907,6 +857,77 @@ def dashboard():
 
 
 # ---------- admin: school profile ----------
+
+@app.route("/admin/sync-conflicts")
+@login_required("admin", "sub_admin")
+def admin_sync_conflicts():
+    """Conflicts recorded by the offline sync API (sync_api.py) when a
+    device's push disagreed with the server's current data. These aren't
+    resolved automatically — a human decides which version is right — so
+    without this page they'd only be visible to whichever offline device
+    caused them (via the Offline App's own Sync Status screen), and would
+    otherwise sit invisible in the database indefinitely."""
+    conn = get_db()
+    school_id = current_school_id()
+    rows = conn.execute(
+        "SELECT * FROM sync_conflicts WHERE school_id=? AND resolved=0 ORDER BY detected_at DESC",
+        (school_id,),
+    ).fetchall()
+    conflicts = []
+    for r in rows:
+        conflicts.append({
+            "id": r["id"], "entity": r["entity"], "client_uuid": r["client_uuid"],
+            "device_id": r["device_id"], "detected_at": r["detected_at"],
+            "client_payload": json.loads(r["client_payload"]),
+            "server_payload": json.loads(r["server_payload"]),
+        })
+    conn.close()
+    return render_template("admin_sync_conflicts.html", conflicts=conflicts)
+
+
+@app.route("/admin/sync-conflicts/<int:conflict_id>/resolve", methods=["POST"])
+@login_required("admin", "sub_admin")
+def admin_resolve_sync_conflict(conflict_id):
+    from sync_api import ENTITIES
+    conn = get_db()
+    school_id = current_school_id()
+    row = conn.execute(
+        "SELECT * FROM sync_conflicts WHERE id=? AND school_id=?", (conflict_id, school_id)
+    ).fetchone()
+    if not row:
+        flash("Conflict not found.", "error")
+        conn.close()
+        return redirect(url_for("admin_sync_conflicts"))
+
+    action = request.form.get("action")
+    cfg = ENTITIES.get(row["entity"])
+    if action == "apply_client" and cfg:
+        client_fields = json.loads(row["client_payload"])
+        client_fields = {k: v for k, v in client_fields.items() if k in cfg["fields"]}
+        existing = conn.execute(
+            f"SELECT id FROM {cfg['table']} WHERE client_uuid=?", (row["client_uuid"],)
+        ).fetchone()
+        if existing and client_fields:
+            set_clause = ", ".join(f"{k}=?" for k in client_fields)
+            conn.execute(
+                f"UPDATE {cfg['table']} SET {set_clause}, updated_at=? WHERE client_uuid=?",
+                (*client_fields.values(), datetime.datetime.utcnow().isoformat(timespec="seconds"), row["client_uuid"]),
+            )
+            resolution = "applied_client_version"
+        else:
+            resolution = "kept_server_version (client row not found — likely a create conflict; add it manually if needed)"
+    else:
+        resolution = "kept_server_version"
+
+    conn.execute(
+        "UPDATE sync_conflicts SET resolved=1, resolved_at=?, resolution=? WHERE id=?",
+        (datetime.datetime.utcnow().isoformat(timespec="seconds"), resolution, conflict_id),
+    )
+    conn.commit()
+    conn.close()
+    flash("Conflict marked resolved.", "success")
+    return redirect(url_for("admin_sync_conflicts"))
+
 
 @app.route("/admin/school", methods=["GET", "POST"])
 @login_required("admin", "sub_admin")
@@ -1187,28 +1208,13 @@ def admin_classes():
         category = request.form.get("category", "").strip() or None
         if category and category not in CLASS_CATEGORIES:
             category = None
-        offline_token = request.form.get("offline_token")
         if name:
-            existing_id = offline_sync_existing_id(conn, offline_token)
-            if existing_id:
-                if is_offline_sync_request():
-                    conn.close()
-                    return {"ok": True, "id": existing_id}
+            try:
+                conn.execute("INSERT INTO classes (school_id, name, category) VALUES (?,?,?)", (school_id, name, category))
+                conn.commit()
                 flash(f"Class '{name}' added.", "success")
-            else:
-                try:
-                    cur = conn.execute("INSERT INTO classes (school_id, name, category) VALUES (?,?,?)", (school_id, name, category))
-                    conn.commit()
-                    offline_sync_remember(conn, offline_token, "class", cur.lastrowid)
-                    if is_offline_sync_request():
-                        conn.close()
-                        return {"ok": True, "id": cur.lastrowid}
-                    flash(f"Class '{name}' added.", "success")
-                except Exception:
-                    if is_offline_sync_request():
-                        conn.close()
-                        return {"ok": False, "error": "That class already exists."}, 409
-                    flash("That class already exists.", "error")
+            except Exception:
+                flash("That class already exists.", "error")
     classes = conn.execute(
         "SELECT c.*, u.name as teacher_name FROM classes c LEFT JOIN users u ON u.id=c.form_teacher_id "
         "WHERE c.school_id=? ORDER BY c.name", (school_id,)
@@ -1289,28 +1295,13 @@ def admin_subjects():
     school_id = current_school_id()
     if request.method == "POST":
         name = request.form["name"].strip()
-        offline_token = request.form.get("offline_token")
         if name:
-            existing_id = offline_sync_existing_id(conn, offline_token)
-            if existing_id:
-                if is_offline_sync_request():
-                    conn.close()
-                    return {"ok": True, "id": existing_id}
+            try:
+                conn.execute("INSERT INTO subjects (school_id, name) VALUES (?,?)", (school_id, name))
+                conn.commit()
                 flash(f"Subject '{name}' added.", "success")
-            else:
-                try:
-                    cur = conn.execute("INSERT INTO subjects (school_id, name) VALUES (?,?)", (school_id, name))
-                    conn.commit()
-                    offline_sync_remember(conn, offline_token, "subject", cur.lastrowid)
-                    if is_offline_sync_request():
-                        conn.close()
-                        return {"ok": True, "id": cur.lastrowid}
-                    flash(f"Subject '{name}' added.", "success")
-                except Exception:
-                    if is_offline_sync_request():
-                        conn.close()
-                        return {"ok": False, "error": "That subject already exists."}, 409
-                    flash("That subject already exists.", "error")
+            except Exception:
+                flash("That subject already exists.", "error")
     subjects = conn.execute("SELECT * FROM subjects WHERE school_id=? ORDER BY name", (school_id,)).fetchall()
     conn.close()
     return render_template("admin_subjects.html", subjects=subjects)
@@ -1417,17 +1408,7 @@ def admin_students():
     school_id = current_school_id()
     if request.method == "POST":
         class_id = request.form["class_id"]
-        offline_token = request.form.get("offline_token")
-        existing_id = offline_sync_existing_id(conn, offline_token)
-        if existing_id:
-            if is_offline_sync_request():
-                conn.close()
-                return {"ok": True, "id": existing_id}
-            flash(f"Student '{request.form['first_name']} {request.form['last_name']}' added.", "success")
-        elif not class_in_school(conn, class_id):
-            if is_offline_sync_request():
-                conn.close()
-                return {"ok": False, "error": "Class not found — it may not have synced yet."}, 409
+        if not class_in_school(conn, class_id):
             flash("Class not found.", "error")
         else:
             try:
@@ -1452,15 +1433,8 @@ def admin_students():
                 )
                 upsert_enrollment(conn, cur.lastrowid, class_id)
                 conn.commit()
-                offline_sync_remember(conn, offline_token, "student", cur.lastrowid)
-                if is_offline_sync_request():
-                    conn.close()
-                    return {"ok": True, "id": cur.lastrowid}
                 flash(f"Student '{request.form['first_name']} {request.form['last_name']}' added.", "success")
             except Exception:
-                if is_offline_sync_request():
-                    conn.close()
-                    return {"ok": False, "error": "That Admission No. / Register No. is already in use in this class."}, 409
                 flash("That Admission No. / Register No. is already in use in this class.", "error")
     classes = conn.execute("SELECT * FROM classes WHERE school_id=? ORDER BY name", (school_id,)).fetchall()
     class_filter = request.args.get("class_id")
@@ -1683,30 +1657,15 @@ def admin_teachers():
         position = request.form.get("position") or None
         if position and position not in dict(POSITION_CHOICES):
             position = None
-        offline_token = request.form.get("offline_token")
-        existing_id = offline_sync_existing_id(conn, offline_token)
-        if existing_id:
-            if is_offline_sync_request():
-                conn.close()
-                return {"ok": True, "id": existing_id}
+        try:
+            conn.execute(
+                "INSERT INTO users (school_id, name, username, password_hash, role, position) VALUES (?,?,?,?, 'teacher', ?)",
+                (school_id, name, username, generate_password_hash(password), position),
+            )
+            conn.commit()
             flash(f"Teacher '{name}' added.", "success")
-        else:
-            try:
-                cur = conn.execute(
-                    "INSERT INTO users (school_id, name, username, password_hash, role, position) VALUES (?,?,?,?, 'teacher', ?)",
-                    (school_id, name, username, generate_password_hash(password), position),
-                )
-                conn.commit()
-                offline_sync_remember(conn, offline_token, "teacher", cur.lastrowid)
-                if is_offline_sync_request():
-                    conn.close()
-                    return {"ok": True, "id": cur.lastrowid}
-                flash(f"Teacher '{name}' added.", "success")
-            except Exception:
-                if is_offline_sync_request():
-                    conn.close()
-                    return {"ok": False, "error": "That username is already taken."}, 409
-                flash("That username is already taken.", "error")
+        except Exception:
+            flash("That username is already taken.", "error")
     teachers = conn.execute("SELECT * FROM users WHERE role='teacher' AND school_id=? ORDER BY name", (school_id,)).fetchall()
     conn.close()
     return render_template("admin_teachers.html", teachers=teachers, position_choices=POSITION_CHOICES, position_labels=POSITION_LABELS)
@@ -1723,6 +1682,7 @@ def delete_teacher(teacher_id):
     conn.execute("UPDATE classes SET form_teacher_id=NULL WHERE form_teacher_id=?", (teacher_id,))
     conn.execute("UPDATE class_subjects SET teacher_id=NULL WHERE teacher_id=?", (teacher_id,))
     conn.execute("DELETE FROM users WHERE id=? AND role='teacher'", (teacher_id,))
+    revoke_device_credentials_for_user(conn, teacher_id, reason="account deleted")
     conn.commit()
     conn.close()
     flash("Teacher removed. Any classes/subjects they were assigned to are now unassigned.", "success")
@@ -1746,28 +1706,6 @@ def set_teacher_position(teacher_id):
     conn.commit()
     conn.close()
     flash("Position updated.", "success")
-    return redirect(url_for("admin_teachers"))
-
-
-@app.route("/admin/teachers/<int:teacher_id>/toggle_active", methods=["POST"])
-@login_required("admin", "sub_admin")
-def toggle_teacher_active(teacher_id):
-    conn = get_db()
-    teacher = teacher_in_school(conn, teacher_id)
-    if not teacher:
-        conn.close()
-        flash("Teacher not found.", "error")
-        return redirect(url_for("admin_teachers"))
-    new_status = 0 if teacher["is_active"] else 1
-    conn.execute("UPDATE users SET is_active=? WHERE id=?", (new_status, teacher_id))
-    conn.commit()
-    conn.close()
-    flash(
-        "Account deactivated. This also blocks offline login on any device that has it saved."
-        if not new_status
-        else "Account reactivated.",
-        "success",
-    )
     return redirect(url_for("admin_teachers"))
 
 
@@ -2953,17 +2891,31 @@ def email_class_results(class_id):
         )
         return redirect(url_for("broadsheet", class_id=class_id))
 
-    school = get_school(conn, current_school_id())
+    sent, skipped, error = send_class_results_emails(conn, current_school_id(), class_id, term["id"])
+    conn.close()
+    if error:
+        flash(error, "error")
+    else:
+        flash(f"Emailed {sent} result(s). {skipped} skipped (no parent email on file, or sending failed).",
+              "success" if sent else "error")
+    return redirect(url_for("broadsheet", class_id=class_id))
+
+
+def send_class_results_emails(conn, school_id, class_id, term_id):
+    """The actual work of emailing a class's results to parents — shared
+    between the normal online route above and the deferred-actions
+    processor below (/api/actions/queue), so a request queued offline and
+    one made online behave identically instead of two copies drifting
+    apart. Returns (sent, skipped, error_message_or_None)."""
+    term = conn.execute("SELECT * FROM terms WHERE id=?", (term_id,)).fetchone()
+    if not term:
+        return 0, 0, "That term no longer exists."
+    if not term["is_published"]:
+        return 0, 0, "This term's results haven't been published yet."
+    school = get_school(conn, school_id)
     students = conn.execute(
         "SELECT * FROM students WHERE class_id=? AND is_active=1 ORDER BY last_name", (class_id,)
     ).fetchall()
-
-    offline_token = request.form.get("offline_token")
-    if offline_sync_existing_id(conn, offline_token) is not None:
-        conn.close()
-        flash("Results already emailed for this class (skipped duplicate offline resend).", "success")
-        return redirect(url_for("broadsheet", class_id=class_id))
-
     sent, skipped = 0, 0
     for st in students:
         if not st["parent_email"]:
@@ -2989,12 +2941,88 @@ def email_class_results(class_id):
             sent += 1
         else:
             skipped += 1
-    if sent:
-        offline_sync_remember(conn, offline_token, "email_class_results", class_id)
+    return sent, skipped, None
+
+
+# ---------- deferred actions (internet-only functions queued while offline) ----------
+# Attendance, scores, comments etc. sync as DATA (sync_api.py). Things like
+# emailing results need a live SMTP connection and can't be "done" locally
+# at all — so instead of data, the offline device queues the REQUEST, and
+# this endpoint (only ever called once the device is back online — see
+# SyncEngine.pushActions in sync-engine.js) actually performs it and
+# reports back what happened. Every request is logged in
+# `deferred_actions` either way, so there's an audit trail even for ones
+# that fail.
+
+DEFERRED_ACTION_TYPES = {"email_class_results"}
+
+
+@app.route("/api/actions/queue", methods=["POST"])
+def queue_deferred_actions():
+    from sync_api import resolve_identity
+    conn = get_db()
+    identity = resolve_identity(conn)
+    if identity is None:
+        conn.close()
+        return jsonify({"error": "not_authenticated"}), 401
+    if identity["role"] not in ("admin", "sub_admin", "teacher"):
+        conn.close()
+        return jsonify({"error": "not_permitted"}), 403
+
+    body = request.get_json(silent=True) or {}
+    actions = body.get("actions", [])
+    if not isinstance(actions, list) or len(actions) > 50:
+        conn.close()
+        return jsonify({"error": "invalid_or_too_large_batch"}), 400
+
+    results = []
+    for action in actions:
+        client_uuid = action.get("client_uuid")
+        action_type = action.get("action_type")
+        payload = action.get("payload") or {}
+        if not client_uuid or action_type not in DEFERRED_ACTION_TYPES:
+            results.append({"client_uuid": client_uuid, "status": "error", "message": "unknown action type"})
+            continue
+
+        existing = conn.execute("SELECT * FROM deferred_actions WHERE client_uuid=?", (client_uuid,)).fetchone()
+        if existing:
+            # Already processed on an earlier sync attempt (e.g. this
+            # response never made it back to the device) — report the
+            # same result again rather than running the action twice.
+            results.append({"client_uuid": client_uuid, "status": existing["status"], "message": existing["result_message"]})
+            continue
+
+        status, message = _process_deferred_action(conn, identity, action_type, payload)
+        conn.execute(
+            "INSERT INTO deferred_actions (school_id, device_id, user_id, client_uuid, action_type, payload, status, result_message, processed_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (identity["school_id"], identity.get("device_id"), identity["user_id"], client_uuid,
+             action_type, json.dumps(payload), status, message, datetime.datetime.utcnow().isoformat(timespec="seconds")),
+        )
+        conn.commit()
+        results.append({"client_uuid": client_uuid, "status": status, "message": message})
+
     conn.close()
-    flash(f"Emailed {sent} result(s). {skipped} skipped (no parent email on file, or sending failed).",
-          "success" if sent else "error")
-    return redirect(url_for("broadsheet", class_id=class_id))
+    return jsonify({"results": results})
+
+
+def _process_deferred_action(conn, identity, action_type, payload):
+    """Returns (status, message) where status is 'done' or 'failed'."""
+    if action_type == "email_class_results":
+        class_id = payload.get("class_id")
+        term_id = payload.get("term_id")
+        class_row = conn.execute(
+            "SELECT * FROM classes WHERE id=? AND school_id=?", (class_id, identity["school_id"])
+        ).fetchone()
+        if not class_row:
+            return "failed", "That class wasn't found in your school (or hasn't synced yet)."
+        if not can_view_class_results(conn, identity["role"], identity["position"], identity["user_id"], class_id):
+            return "failed", "You don't have access to email results for this class."
+        sent, skipped, error = send_class_results_emails(conn, identity["school_id"], class_id, term_id)
+        if error:
+            return "failed", error
+        return "done", f"Emailed {sent} result(s); {skipped} skipped (no parent email on file, or sending failed)."
+    return "failed", f"Unknown action type '{action_type}'."
 
 
 # ---------- terminal result ----------
@@ -3021,12 +3049,12 @@ def build_result_data(conn, student_id, term_id):
             total = compute_total(score["ca1"], score["ca2"], score["exam"])
             grade, remark = grade_for(total, conn, school_id)
             subject_details.append({
-                "id": subj["id"], "name": subj["name"], "ca1": score["ca1"], "ca2": score["ca2"],
+                "name": subj["name"], "ca1": score["ca1"], "ca2": score["ca2"],
                 "exam": score["exam"], "total": total, "grade": grade, "remark": remark
             })
         else:
             subject_details.append({
-                "id": subj["id"], "name": subj["name"], "ca1": "-", "ca2": "-", "exam": "-",
+                "name": subj["name"], "ca1": "-", "ca2": "-", "exam": "-",
                 "total": "-", "grade": "-", "remark": "-"
             })
 
@@ -3092,14 +3120,10 @@ def result(student_id):
     data = build_result_data(conn, student_id, term["id"])
     all_traits = conn.execute("SELECT * FROM skill_traits WHERE school_id=? ORDER BY category, name", (current_school_id(),)).fetchall()
     all_terms = all_terms_for_school(conn)
-    grade_scale = conn.execute(
-        "SELECT min_score, max_score, grade, remark FROM grade_scale WHERE school_id=? ORDER BY min_score DESC",
-        (current_school_id(),),
-    ).fetchall()
     conn.close()
     return render_template(
         "result.html", term=term, all_traits=all_traits, student_full_name=student_full_name,
-        all_terms=all_terms, grade_scale=[dict(g) for g in grade_scale], **data
+        all_terms=all_terms, **data
     )
 
 
@@ -3244,17 +3268,6 @@ def email_result(student_id):
             "error",
         )
         return redirect(url_for("result", student_id=student_id))
-
-    offline_token = request.form.get("offline_token")
-    if offline_sync_existing_id(conn, offline_token) is not None:
-        # This exact offline-queued email already went out — most likely
-        # the send succeeded earlier but the device never saw the response
-        # (e.g. connection dropped right after) and retried. Don't send it
-        # again; just report success as if it had gone through this time.
-        conn.close()
-        flash(f"Result emailed to {student_row['parent_email']}.", "success")
-        return redirect(url_for("result", student_id=student_id))
-
     data = build_result_data(conn, student_id, term["id"])
     school = get_school(conn, current_school_id())
     logo_path = None
@@ -3265,6 +3278,7 @@ def email_result(student_id):
     pdf_buf = build_result_pdf(data, term, school_name=school["name"] if school else None,
                                 logo_path=logo_path, student_full_name=student_full_name,
                                 font_choice=school["pdf_font"] if school else "Helvetica")
+    conn.close()
     ok, msg = send_email(
         school, student_row["parent_email"],
         f"{student_full_name(student_row)}'s Result — {term['session_name']} {term['name']}",
@@ -3272,9 +3286,6 @@ def email_result(student_id):
         attachment_bytes=pdf_buf.getvalue(),
         attachment_filename=f"result_{student_row['admission_no']}.pdf".replace("/", "-"),
     )
-    if ok:
-        offline_sync_remember(conn, offline_token, "email_result", student_id)
-    conn.close()
     flash(msg, "success" if ok else "error")
     return redirect(url_for("result", student_id=student_id))
 
@@ -3746,6 +3757,23 @@ def offline_queue_page():
     server — this page is just the JS-rendered view onto it, so it works
     the same regardless of which staff member's device it is."""
     return render_template("offline_queue.html")
+
+
+@app.route("/offline-app")
+def offline_app_shell():
+    """The full offline-first app shell: PIN login (no server session
+    needed at all) plus attendance/score-entry/registration/sync screens
+    rendered entirely from this device's local IndexedDB copy of the
+    data. Deliberately NOT behind @login_required — the whole point is
+    that it has to open with zero connectivity, so it can't depend on a
+    live Flask session. See OFFLINE_ARCHITECTURE.md."""
+    school_name = None
+    if "school_id" in session:
+        conn = get_db()
+        school = get_school(conn, session["school_id"])
+        conn.close()
+        school_name = school["name"] if school else None
+    return render_template("offline_app.html", school_name=school_name)
 
 
 # ---------- reports & analytics ----------
@@ -4489,6 +4517,7 @@ def platform_suspend_school(school_id):
     school = get_school(conn, school_id)
     if school:
         conn.execute("UPDATE schools SET is_suspended=1 WHERE id=?", (school_id,))
+        revoke_device_credentials_for_school(conn, school_id, reason="school suspended")
         log_audit(conn, "platform_admin", session.get("platform_admin_name"), "suspend_school",
                   details=f"Suspended '{school['name']}'", school_id=school_id)
         conn.commit()
