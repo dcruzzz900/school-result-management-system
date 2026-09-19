@@ -24,10 +24,8 @@
     {% endif %}
     {% if term.is_active %}
     <form method="POST" action="{{ url_for('email_class_results', class_id=class_row.id) }}" class="inline"
-          data-offline="true" data-offline-label="Email Class Results"
           onsubmit="return confirm('Email every student\'s result in this class to their parent email on file?');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="name" value="{{ class_row.name }}">
         <button class="btn" type="submit">✉ Email All Results to Parents</button>
     </form>
     {% else %}

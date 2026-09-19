@@ -5,7 +5,7 @@
 
 <div class="card">
     <h3>Add a Subject</h3>
-    <form method="POST" data-offline="true" data-offline-label="Add Subject" data-offline-creates="subject">
+    <form method="POST" data-offline="true" data-offline-label="Add Subject">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Subject name (e.g. Mathematics)</label>
         <input type="text" name="name" required>

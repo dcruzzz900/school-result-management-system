@@ -28,8 +28,7 @@
     {% elif not term.is_published %}
     <span style="font-size:0.85rem; color:#999;">Results for this term aren't published yet — emailing is disabled until an admin publishes them (Setup → Terms).</span>
     {% elif student.parent_email %}
-    <form method="POST" action="{{ url_for('email_result', student_id=student.id) }}" class="inline" data-offline="true" data-offline-label="Email Result">
-    <input type="hidden" name="name" value="{{ student_full_name(student) }} to {{ student.parent_email }}">
+    <form method="POST" action="{{ url_for('email_result', student_id=student.id) }}" class="inline">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn" type="submit">✉ Email to Parent</button>
     </form>
@@ -61,7 +60,7 @@
     <table>
         <tr><th>Subject</th><th>CA1</th><th>CA2</th><th>Exam</th><th>Total</th><th>Grade</th><th>Remark</th></tr>
         {% for s in subjects %}
-        <tr data-subject-id="{{ s.id }}" data-subject-name="{{ s.name }}">
+        <tr>
             <td>{{ s.name }}</td><td>{{ s.ca1 }}</td><td>{{ s.ca2 }}</td><td>{{ s.exam }}</td>
             <td>{{ s.total }}</td><td>{{ s.grade }}</td><td>{{ s.remark }}</td>
         </tr>
@@ -158,92 +157,4 @@
 .comment-blank { display: inline-block; border-bottom: 1px solid #999; width: 100%; height: 1.5em; }
 .signature-line { display: flex; justify-content: space-between; gap: 1rem; margin-top: 0.5rem; font-size: 0.9rem; }
 </style>
-
-<script id="gradeScaleData" type="application/json">{{ grade_scale|tojson }}</script>
-<script>
-// Offline result preview. The figures above reflect the last SYNCED data —
-// if scores or comments for this student are still sitting in the offline
-// queue (entered on this device but not yet sent), they won't show up
-// there yet. This scans the queue for anything matching this student and
-// previews it separately, computed the same way the server would, so
-// there's no confusing gap between "I entered it" and "it shows up".
-// It does NOT recompute position/average/class totals — those genuinely
-// need everyone else's synced data too, so they stay as "last known" until
-// a real sync happens.
-document.addEventListener('DOMContentLoaded', function () {
-    if (typeof OfflineQueue === 'undefined') return;
-    var studentId = "{{ student.id }}";
-    var gradeScale = JSON.parse(document.getElementById('gradeScaleData').textContent);
-
-    function gradeFor(total) {
-        for (var i = 0; i < gradeScale.length; i++) {
-            if (total >= gradeScale[i].min_score && total <= gradeScale[i].max_score) {
-                return [gradeScale[i].grade, gradeScale[i].remark];
-            }
-        }
-        return ["-", "-"];
-    }
-
-    function esc(s) {
-        var div = document.createElement('div');
-        div.textContent = s == null ? "" : String(s);
-        return div.innerHTML;
-    }
-
-    var pendingScores = [];
-    var pendingComment = null;
-
-    OfflineQueue.loadQueue().forEach(function (entry) {
-        var scoreMatch = entry.action.match(/^\/scores\/\d+\/(\d+)$/);
-        if (scoreMatch) {
-            var subjectId = scoreMatch[1];
-            var ca1 = null, ca2 = null, exam = null, found = false;
-            entry.fields.forEach(function (pair) {
-                if (pair[0] === "ca1_" + studentId) { ca1 = pair[1]; found = true; }
-                if (pair[0] === "ca2_" + studentId) { ca2 = pair[1]; found = true; }
-                if (pair[0] === "exam_" + studentId) { exam = pair[1]; found = true; }
-            });
-            if (!found) return; // this queued score sheet has no row for this student
-            var total = Math.round(((parseFloat(ca1) || 0) + (parseFloat(ca2) || 0) + (parseFloat(exam) || 0)) * 100) / 100;
-            var gr = gradeFor(total);
-            var subjRow = document.querySelector('tr[data-subject-id="' + subjectId + '"]');
-            pendingScores.push({
-                name: subjRow ? esc(subjRow.dataset.subjectName) : ("Subject #" + subjectId),
-                ca1: esc(ca1) || "-", ca2: esc(ca2) || "-", exam: esc(exam) || "-", total: total, grade: gr[0],
-            });
-        }
-        var extraMatch = entry.action.match(/^\/result\/(\d+)\/extra$/);
-        if (extraMatch && extraMatch[1] === studentId) {
-            var fieldsMap = {};
-            entry.fields.forEach(function (pair) { fieldsMap[pair[0]] = pair[1]; });
-            pendingComment = fieldsMap;
-        }
-    });
-
-    if (!pendingScores.length && !pendingComment) return;
-
-    var banner = document.createElement('div');
-    banner.className = 'card no-print';
-    banner.style.background = '#fff8e1';
-    banner.style.border = '1px solid #e6c458';
-    var html = '<h3>⚠ Offline changes not yet synced</h3>' +
-        '<p style="font-size:0.85rem; color:#666;">Saved on this device, not sent yet. The figures above ' +
-        '(including Total/Average/Position) don\'t include these — that needs a real sync, since Position ' +
-        'depends on comparing with the rest of the class.</p>';
-    if (pendingScores.length) {
-        html += '<table><tr><th>Subject</th><th>CA1</th><th>CA2</th><th>Exam</th><th>Total (pending)</th><th>Grade (pending)</th></tr>';
-        pendingScores.forEach(function (s) {
-            html += '<tr><td>' + s.name + '</td><td>' + s.ca1 + '</td><td>' + s.ca2 + '</td><td>' + s.exam + '</td><td>' + s.total + '</td><td>' + s.grade + '</td></tr>';
-        });
-        html += '</table>';
-    }
-    if (pendingComment) {
-        if (pendingComment.teacher_comment) html += '<p style="margin-top:0.75rem;"><b>Teacher comment (pending):</b> ' + esc(pendingComment.teacher_comment) + '</p>';
-        if (pendingComment.principal_comment) html += '<p><b>Principal comment (pending):</b> ' + esc(pendingComment.principal_comment) + '</p>';
-    }
-    banner.innerHTML = html;
-    var header = document.querySelector('.report-header');
-    header.parentNode.insertBefore(banner, header.nextSibling);
-});
-</script>
 {% endblock %}

@@ -27,7 +27,7 @@
 
 <div class="card">
     <h3>Add a Student</h3>
-    <form method="POST" data-offline="true" data-offline-label="Add Student" data-offline-creates="student">
+    <form method="POST" data-offline="true" data-offline-label="Add Student">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="grid-2">
             <div>
@@ -45,7 +45,7 @@
                     <option value="F">Female</option>
                 </select>
                 <label>Class / Arm</label>
-                <select name="class_id" required data-offline-ref="class">
+                <select name="class_id" required>
                     {% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
                 </select>
                 <label>Date of Birth</label>
