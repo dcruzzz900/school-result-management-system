@@ -348,6 +348,14 @@ const OfflineQueue = (function () {
                 const classIdField = fields.find(([k]) => k === "class_id");
                 const meta = classIdField ? { classId: classIdField[1] } : undefined;
                 addPendingRecord(entityType, localId, entityName(form) || description, meta);
+            } else if (!fields.some(([k]) => k === "offline_token")) {
+                // Not an entity-creating form, so no placeholder id is needed
+                // for others to depend on — but it can still carry real side
+                // effects (e.g. sending an email), so it still gets a
+                // one-time token. A route that cares can use it to recognize
+                // a retried sync and avoid, say, emailing the same result
+                // twice; routes that don't check it just ignore the field.
+                fields.push(["offline_token", "tok_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8)]);
             }
 
             // A referenced not-yet-synced record can show up either as a
@@ -370,8 +378,13 @@ const OfflineQueue = (function () {
                 dependsOn: Array.from(dependsOn),
             });
 
+            const action = form.getAttribute("action") || "";
+            const isEmailAction = /\/email(_results)?$/.test(action);
+            const toastMsg = isEmailAction
+                ? "Queued: " + description + ". It'll be sent once you're back online."
+                : "Saved offline: " + description + ". It will sync automatically once you're back online.";
             populateRefSelects();
-            showToast("Saved offline: " + description + ". It will sync automatically once you're back online.");
+            showToast(toastMsg);
             form.reset();
         });
     }
