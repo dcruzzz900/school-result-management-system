@@ -28,7 +28,8 @@
     {% elif not term.is_published %}
     <span style="font-size:0.85rem; color:#999;">Results for this term aren't published yet — emailing is disabled until an admin publishes them (Setup → Terms).</span>
     {% elif student.parent_email %}
-    <form method="POST" action="{{ url_for('email_result', student_id=student.id) }}" class="inline">
+    <form method="POST" action="{{ url_for('email_result', student_id=student.id) }}" class="inline" data-offline="true" data-offline-label="Email Result">
+    <input type="hidden" name="name" value="{{ student_full_name(student) }} to {{ student.parent_email }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn" type="submit">✉ Email to Parent</button>
     </form>
