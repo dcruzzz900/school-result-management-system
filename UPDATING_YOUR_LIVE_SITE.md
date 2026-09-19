@@ -5,38 +5,44 @@ small update — no schema changes, no new external dependencies.
 
 ## What's new in this update
 
-**Multi-school data isolation hardening**, specifically for the offline
-layer — this only matters if the same phone/computer is ever used to log
-into more than one school's account (e.g. someone who administers two
-schools, or a shared device at an IT provider).
+**Graceful degradation for online-only features.** This app's only
+genuinely online-only actions are the two "email result to parent" buttons
+(SMTP has to reach an actual mail server) — there's no payments, AI
+features, or cloud backup in this app to degrade, so this phase is scoped
+to what actually exists.
 
-- Offline drafts (Score Entry, Roll Call, new students/classes, etc. saved
-  while offline) are now kept separate per school on the device. Before
-  this update, they were stored in one shared bucket — a different
-  school's login on the same device could technically see another
-  school's queued drafts sitting in the Offline Queue page, even though
-  the server would always still refuse to actually save them under the
-  wrong school.
-- Cached pages are now wiped the moment a *different* school logs in on a
-  device than the one last used there. This matters because a cached page
-  is served with zero server contact when offline — so without this, a
-  stale page from School A's session could in principle be served if
-  School B's account is used on that device later while offline. (The
-  offline lock screen already required knowing that specific account's
-  password to view a cached page, so this wasn't wide open — this closes
-  it properly rather than relying on that.)
-- If a device already had drafts queued from before this update, they're
-  carried over into whichever school first loads the update on that
-  device, rather than silently disappearing.
+- **Email to Parent** (on a student's Result page) and **Email All Results
+  to Parents** (on a class's Broadsheet page) now queue automatically if
+  you click them while offline, instead of failing with a browser network
+  error. They'll actually send once you're back online — same Offline
+  Queue mechanism as everything else, with wording that says "queued to
+  send" rather than "will sync", since that's a clearer way to describe
+  what's actually about to happen.
+- Both are now protected against sending twice: if a send actually goes
+  through on the server but your device never sees the confirmation
+  (connection drops right after), retrying it recognizes the repeat and
+  skips resending rather than emailing the parent a duplicate. I tested
+  this directly — simulating "this already sent" and confirming a retry
+  returns the same success message without attempting to send again.
+- Every offline-queued action (not just these two) now carries a one-time
+  token for the same reason, so this same protection is available to any
+  future online-only or side-effecting action added later, not just email.
 
-**Worth knowing:** this hardens *school-to-school* isolation specifically,
-since that's what carries real risk (different organizations, potentially
-different people entirely). It doesn't add separate cache isolation
-between two different staff *at the same school* sharing a device — e.g.
-an admin's cached page could still be offline-visible if a regular teacher
-uses the same device next, same as before this update. That's a smaller,
-same-school concern rather than a cross-school data leak, and isn't
-addressed by this phase.
+## This completes the offline-first requirements
+
+With this phase, everything originally asked for has been built and
+tested: offline login with encrypted local credentials and role/expiry
+handling, full offline data entry including brand-new records created
+offline, offline scores/attendance/subject-assignment for those new
+records, offline result viewing with a live preview of unsynced changes,
+multi-school data isolation on the device, and now graceful handling of
+the app's one online-only feature (email).
+
+**Worth keeping in mind going forward:** this was all built and tested in
+a local sandbox, not against your live PythonAnywhere deployment or a real
+phone. Test each piece for real on an actual device before relying on it
+for daily use — especially the offline login and multi-school isolation
+pieces, since those touch how staff actually access the app.
 
 ## Steps
 
@@ -70,17 +76,19 @@ addressed by this phase.
 8. On a phone that already has this app installed/bookmarked, do a full
    refresh once (pull-to-refresh or close and reopen the tab/app) so it
    picks up the updated scripts.
-9. Test it (needs two schools/accounts to check properly):
-   - Log in as School A, queue an offline draft (e.g. add a student while
-     in Airplane Mode), then go online and let it sync, or leave it queued.
-   - Log out, log in as School B (online) on the *same* browser.
-   - Open **Offline Queue** as School B — it should be empty, even if
-     School A still has something queued from before it synced.
-   - Log back in as School A — their queued item (if any) should still be
-     there, untouched.
+9. Test it:
+   - Turn on Airplane Mode.
+   - Open a student's Result page and click **Email to Parent** — you
+     should see a "Queued: ... It'll be sent once you're back online"
+     toast instead of a network error.
+   - Turn Airplane Mode back off, open **Offline Queue**, tap **Sync
+     Now** — it should show as sent (check your school's email settings
+     are configured under Setup → Email Settings for the actual send to
+     succeed, same as it always required).
 
 If anything looks off after reloading, check the **Error log** link on the
 Web tab and paste me what it says.
+
 
 
 

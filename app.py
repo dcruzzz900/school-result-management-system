@@ -2958,6 +2958,12 @@ def email_class_results(class_id):
         "SELECT * FROM students WHERE class_id=? AND is_active=1 ORDER BY last_name", (class_id,)
     ).fetchall()
 
+    offline_token = request.form.get("offline_token")
+    if offline_sync_existing_id(conn, offline_token) is not None:
+        conn.close()
+        flash("Results already emailed for this class (skipped duplicate offline resend).", "success")
+        return redirect(url_for("broadsheet", class_id=class_id))
+
     sent, skipped = 0, 0
     for st in students:
         if not st["parent_email"]:
@@ -2983,6 +2989,8 @@ def email_class_results(class_id):
             sent += 1
         else:
             skipped += 1
+    if sent:
+        offline_sync_remember(conn, offline_token, "email_class_results", class_id)
     conn.close()
     flash(f"Emailed {sent} result(s). {skipped} skipped (no parent email on file, or sending failed).",
           "success" if sent else "error")
@@ -3236,6 +3244,17 @@ def email_result(student_id):
             "error",
         )
         return redirect(url_for("result", student_id=student_id))
+
+    offline_token = request.form.get("offline_token")
+    if offline_sync_existing_id(conn, offline_token) is not None:
+        # This exact offline-queued email already went out — most likely
+        # the send succeeded earlier but the device never saw the response
+        # (e.g. connection dropped right after) and retried. Don't send it
+        # again; just report success as if it had gone through this time.
+        conn.close()
+        flash(f"Result emailed to {student_row['parent_email']}.", "success")
+        return redirect(url_for("result", student_id=student_id))
+
     data = build_result_data(conn, student_id, term["id"])
     school = get_school(conn, current_school_id())
     logo_path = None
@@ -3246,7 +3265,6 @@ def email_result(student_id):
     pdf_buf = build_result_pdf(data, term, school_name=school["name"] if school else None,
                                 logo_path=logo_path, student_full_name=student_full_name,
                                 font_choice=school["pdf_font"] if school else "Helvetica")
-    conn.close()
     ok, msg = send_email(
         school, student_row["parent_email"],
         f"{student_full_name(student_row)}'s Result — {term['session_name']} {term['name']}",
@@ -3254,6 +3272,9 @@ def email_result(student_id):
         attachment_bytes=pdf_buf.getvalue(),
         attachment_filename=f"result_{student_row['admission_no']}.pdf".replace("/", "-"),
     )
+    if ok:
+        offline_sync_remember(conn, offline_token, "email_result", student_id)
+    conn.close()
     flash(msg, "success" if ok else "error")
     return redirect(url_for("result", student_id=student_id))
 
