@@ -234,7 +234,17 @@
             frame("Attendance / Roll Call", body);
             return;
         }
-        const classes = await accessibleClasses();
+        // Attendance is tied 1:1 to a class+date; a class that hasn't
+        // synced yet has no real id to attach the record to, so (unlike
+        // Student Registration) it's excluded here rather than made
+        // dependency-safe -- a class is normally set up in advance, not
+        // in the same breath as taking attendance for it.
+        const classes = (await accessibleClasses()).filter((c) => c.id);
+        if (!classes.length) {
+            body.appendChild(el(`<p>No synced classes available yet on this device — connect once online first, or add one under "Manage Classes" and wait for it to sync.</p>`));
+            frame("Attendance / Roll Call", body);
+            return;
+        }
         const controls = el(`
             <div class="card">
                 <label>Class</label>
@@ -302,7 +312,13 @@
             frame("Score Entry", body);
             return;
         }
-        const classes = await teachingClasses();
+        // Same reasoning as Attendance above -- scores need a real class id.
+        const classes = (await teachingClasses()).filter((c) => c.id);
+        if (!classes.length) {
+            body.appendChild(el(`<p>No synced classes available yet on this device — connect once online first.</p>`));
+            frame("Score Entry", body);
+            return;
+        }
         const controls = el(`
             <div class="card">
                 <label>Class</label>
@@ -384,8 +400,14 @@
             frame("Teacher / Principal Comments", body);
             return;
         }
+        // Same reasoning as Attendance above -- comments need a real class id.
         const isAdmin = ["admin", "sub_admin"].includes(session.user.role);
-        const classes = await accessibleClasses();
+        const classes = (await accessibleClasses()).filter((c) => c.id);
+        if (!classes.length) {
+            body.appendChild(el(`<p>No synced classes available yet on this device — connect once online first.</p>`));
+            frame("Teacher / Principal Comments", body);
+            return;
+        }
         const controls = el(`
             <div class="card">
                 <label>Class</label>
@@ -492,13 +514,17 @@
     async function renderClassManagement() {
         const body = el(`<div></div>`);
         body.appendChild(backButton());
-        const classes = await OfflineDB.getAll(schoolId, "classes");
-        const teachers = (await OfflineDB.getAll(schoolId, "users")).filter((u) => u.role === "teacher");
-        const listCard = el(`<div class="card"><h3>Existing Classes</h3><table><thead><tr><th>Name</th><th>Category</th><th>Status</th></tr></thead><tbody>
-            ${classes.map((c) => `<tr><td>${c.name}</td><td>${c.category || "—"}</td><td>${c._sync.status === "synced" ? "Synced" : "Pending sync"}</td></tr>`).join("")}
-        </tbody></table></div>`);
+        const listCard = el(`<div class="card"><h3>Existing Classes</h3><table><thead><tr><th>Name</th><th>Category</th><th>Status</th></tr></thead><tbody id="clsListBody"></tbody></table></div>`);
         body.appendChild(listCard);
 
+        async function refreshList() {
+            const classes = await OfflineDB.getAll(schoolId, "classes");
+            document.getElementById("clsListBody").innerHTML = classes.map((c) =>
+                `<tr><td>${c.name}</td><td>${c.category || "—"}</td><td>${c._sync.status === "synced" ? "Synced" : "Pending sync"}</td></tr>`
+            ).join("");
+        }
+
+        const teachers = (await OfflineDB.getAll(schoolId, "users")).filter((u) => u.role === "teacher");
         const CLASS_CATEGORIES = ["", "Science", "Arts", "Commercial"]; // must mirror CLASS_CATEGORIES in db.py
         const formCard = el(`
             <div class="card">
@@ -514,6 +540,7 @@
         `);
         body.appendChild(formCard);
         frame("Manage Classes", body);
+        await refreshList();
 
         document.getElementById("clsSaveBtn").addEventListener("click", async () => {
             const name = document.getElementById("clsName").value.trim();
@@ -526,18 +553,24 @@
             await SyncEngine.queueChange(schoolId, "classes", "create", data, undefined, pendingRefs);
             msg.style.color = "#2e7d4f";
             msg.textContent = "Saved on this device — will sync when back online.";
-            renderClassManagement();
+            document.getElementById("clsName").value = "";
+            await refreshList();
         });
     }
 
     async function renderSubjectManagement() {
         const body = el(`<div></div>`);
         body.appendChild(backButton());
-        const subjects = await OfflineDB.getAll(schoolId, "subjects");
-        const listCard = el(`<div class="card"><h3>Existing Subjects</h3><table><thead><tr><th>Name</th><th>Status</th></tr></thead><tbody>
-            ${subjects.map((s) => `<tr><td>${s.name}</td><td>${s._sync.status === "synced" ? "Synced" : "Pending sync"}</td></tr>`).join("")}
-        </tbody></table></div>`);
+        const listCard = el(`<div class="card"><h3>Existing Subjects</h3><table><thead><tr><th>Name</th><th>Status</th></tr></thead><tbody id="subjListBody"></tbody></table></div>`);
         body.appendChild(listCard);
+
+        async function refreshList() {
+            const subjects = await OfflineDB.getAll(schoolId, "subjects");
+            document.getElementById("subjListBody").innerHTML = subjects.map((s) =>
+                `<tr><td>${s.name}</td><td>${s._sync.status === "synced" ? "Synced" : "Pending sync"}</td></tr>`
+            ).join("");
+        }
+
         const formCard = el(`
             <div class="card">
                 <h3>Add a Subject</h3>
@@ -548,6 +581,7 @@
         `);
         body.appendChild(formCard);
         frame("Manage Subjects", body);
+        await refreshList();
 
         document.getElementById("subjSaveBtn").addEventListener("click", async () => {
             const name = document.getElementById("subjName").value.trim();
@@ -556,18 +590,23 @@
             await SyncEngine.queueChange(schoolId, "subjects", "create", { name });
             msg.style.color = "#2e7d4f";
             msg.textContent = "Saved on this device — will sync when back online.";
-            renderSubjectManagement();
+            document.getElementById("subjName").value = "";
+            await refreshList();
         });
     }
 
     async function renderTeacherManagement() {
         const body = el(`<div></div>`);
         body.appendChild(backButton());
-        const staff = (await OfflineDB.getAll(schoolId, "users")).filter((u) => u.role !== "admin");
-        const listCard = el(`<div class="card"><h3>Existing Teachers / Staff</h3><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th></tr></thead><tbody>
-            ${staff.map((u) => `<tr><td>${u.name}</td><td>${u.username}</td><td>${u.role}</td><td>${u._sync.status === "synced" ? "Synced" : "Pending sync"}</td></tr>`).join("")}
-        </tbody></table></div>`);
+        const listCard = el(`<div class="card"><h3>Existing Teachers / Staff</h3><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th></tr></thead><tbody id="tListBody"></tbody></table></div>`);
         body.appendChild(listCard);
+
+        async function refreshList() {
+            const staff = (await OfflineDB.getAll(schoolId, "users")).filter((u) => u.role !== "admin");
+            document.getElementById("tListBody").innerHTML = staff.map((u) =>
+                `<tr><td>${u.name}</td><td>${u.username}</td><td>${u.role}</td><td>${u._sync.status === "synced" ? "Synced" : "Pending sync"}</td></tr>`
+            ).join("");
+        }
 
         // Mirrors POSITION_LABELS in db.py.
         const POSITIONS = { "": "None", principal: "Principal", vice_principal: "Vice Principal", exam_officer: "Exam Officer", subject_teacher: "Subject Teacher", form_teacher: "Form Teacher" };
@@ -588,6 +627,7 @@
         `);
         body.appendChild(formCard);
         frame("Manage Teachers / Staff", body);
+        await refreshList();
 
         document.getElementById("tSaveBtn").addEventListener("click", async () => {
             const msg = document.getElementById("tMsg");
@@ -603,7 +643,10 @@
             await SyncEngine.queueChange(schoolId, "users", "create", data);
             msg.style.color = "#2e7d4f";
             msg.textContent = "Saved on this device — will sync when back online.";
-            renderTeacherManagement();
+            document.getElementById("tName").value = "";
+            document.getElementById("tUsername").value = "";
+            document.getElementById("tPassword").value = "";
+            await refreshList();
         });
     }
 
